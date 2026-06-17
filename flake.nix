@@ -1,5 +1,5 @@
 {
-  description = "Microsoft Graph API client library, written in Rust";
+  description = "Microsoft Graph API client library for Rust";
 
   inputs = {
     nixpkgs = {
