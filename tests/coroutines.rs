@@ -5,18 +5,37 @@ use io_http::rfc6750::bearer::HttpAuthBearer;
 use io_msgraph::v1::{
     query::to_query_pairs,
     rest::users::{
-        mail_folders::{list::MsgraphMailFoldersList, list::MsgraphMailFoldersListParams},
+        get::MsgraphUserGet,
+        mail_folders::{
+            MsgraphMailFolder, create::MsgraphMailFolderCreate, delete::MsgraphMailFolderDelete,
+            list::MsgraphMailFoldersList, list::MsgraphMailFoldersListParams,
+        },
         messages::{
-            get_raw::MsgraphMessageGetRaw, list::MsgraphMessagesList,
-            list::MsgraphMessagesListParams,
+            MsgraphMessage, get_raw::MsgraphMessageGetRaw, list::MsgraphMessagesList,
+            list::MsgraphMessagesListParams, move_to::MsgraphMessageMove,
+            update::MsgraphMessageUpdate,
         },
         send_mail::MsgraphSendMailMime,
     },
-    send::MsgraphSendError,
+    send::{MsgraphSendError, parse_api_error},
 };
 
 fn auth() -> HttpAuthBearer {
     HttpAuthBearer::new("test-token")
+}
+
+#[test]
+fn gets_user() {
+    let body = r#"{"id":"abc","displayName":"Alice","mail":"alice@example.com","userPrincipalName":"alice@example.com"}"#;
+
+    let mut coroutine = MsgraphUserGet::new(&auth(), "me").unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let out = result.unwrap();
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(request.starts_with("GET /v1.0/me"));
+    assert!(request.contains("Authorization: Bearer test-token"));
+    assert_eq!(out.response.mail.as_deref(), Some("alice@example.com"));
 }
 
 #[test]
@@ -34,13 +53,57 @@ fn mail_folders_list_parses_value() {
 
     let request = String::from_utf8_lossy(&written);
     assert!(request.starts_with("GET /v1.0/me/mailFolders"));
-    assert!(request.contains("Authorization: Bearer test-token"));
 
     assert_eq!(out.response.value.len(), 2);
     assert_eq!(out.response.value[0].id, "AAA");
     assert_eq!(out.response.value[0].display_name, "Inbox");
     assert_eq!(out.response.value[0].total_item_count, Some(71));
     assert_eq!(out.response.value[1].display_name, "Archive");
+}
+
+#[test]
+fn creates_folder_posts_display_name() {
+    let body = r#"{ "id": "AAA", "displayName": "todo" }"#;
+
+    let folder = MsgraphMailFolder {
+        display_name: "todo".into(),
+        ..Default::default()
+    };
+    let mut coroutine = MsgraphMailFolderCreate::new(&auth(), "me", &folder).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 201 Created", body));
+
+    assert_eq!(result.unwrap().response.id, "AAA");
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(request.starts_with("POST /v1.0/me/mailFolders"));
+    assert!(
+        request.contains("\"displayName\":\"todo\""),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn rejects_empty_folder_name() {
+    let folder = MsgraphMailFolder {
+        display_name: "  ".into(),
+        ..Default::default()
+    };
+    let result = MsgraphMailFolderCreate::new(&auth(), "me", &folder);
+    assert!(matches!(result, Err(MsgraphSendError::InvalidRequest(_))));
+}
+
+#[test]
+fn deletes_folder_issues_delete() {
+    let mut coroutine = MsgraphMailFolderDelete::new(&auth(), "me", "AAA").unwrap();
+    let (result, written) = run(&mut coroutine, &empty_response("HTTP/1.1 204 No Content"));
+
+    result.unwrap();
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("DELETE /v1.0/me/mailFolders/AAA"),
+        "got: {request}"
+    );
 }
 
 #[test]
@@ -67,6 +130,44 @@ fn messages_list_builds_odata_query() {
     // unset params do not appear
     assert!(!request.contains("%24skip"));
     assert!(!request.contains("%24filter"));
+}
+
+#[test]
+fn updates_message_patches_is_read() {
+    let body = r#"{ "id": "ID1", "isRead": true }"#;
+
+    let patch = MsgraphMessage {
+        is_read: Some(true),
+        ..Default::default()
+    };
+    let mut coroutine = MsgraphMessageUpdate::new(&auth(), "me", "ID1", &patch).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+
+    assert_eq!(result.unwrap().response.is_read, Some(true));
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("PATCH /v1.0/me/messages/ID1"),
+        "got: {request}"
+    );
+    assert!(request.contains("\"isRead\":true"), "got: {request}");
+}
+
+#[test]
+fn move_posts_destination_id() {
+    let body = r#"{ "id": "NEW" }"#;
+
+    let mut coroutine = MsgraphMessageMove::new(&auth(), "me", "ID1", "archive").unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 201 Created", body));
+
+    assert_eq!(result.unwrap().response.id, "NEW");
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(request.contains("/v1.0/me/messages/ID1/move"));
+    assert!(
+        request.contains("\"destinationId\":\"archive\""),
+        "got: {request}"
+    );
 }
 
 #[test]
@@ -121,6 +222,20 @@ fn api_error_envelope_is_surfaced() {
         }
         err => panic!("unexpected error: {err:?}"),
     }
+}
+
+#[test]
+fn parse_api_error_falls_back_on_missing_message_and_non_json() {
+    let (status, code, message) =
+        parse_api_error(404, br#"{ "error": { "code": "ErrorItemNotFound" } }"#);
+    assert_eq!(status, 404);
+    assert_eq!(code, "ErrorItemNotFound");
+    assert_eq!(message, "unknown Microsoft Graph API error");
+
+    let (status, code, message) = parse_api_error(502, b"upstream failure");
+    assert_eq!(status, 502);
+    assert_eq!(code, "unknown");
+    assert_eq!(message, "upstream failure");
 }
 
 #[test]
