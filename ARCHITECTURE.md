@@ -6,7 +6,7 @@ If a statement here conflicts with the code, the code wins; please flag it.
 
 ## Where io-msgraph fits
 
-io-msgraph is a **protocol library**: a set of I/O-free coroutines for the [Microsoft Graph API](https://learn.microsoft.com/en-us/graph/api/overview). It sits one layer above [io-http](https://github.com/pimalaya/io-http) (HTTP/1.1) and [pimalaya-stream](https://github.com/pimalaya/stream) (TCP + TLS), and is consumed by [io-email](https://github.com/pimalaya/io-email) (as the Microsoft Graph backend of the shared email domain API) and directly by [himalaya](https://github.com/pimalaya/himalaya) (the protocol-specific `msgraph` command). It is the Microsoft Graph analogue of [io-gmail](https://github.com/pimalaya/io-gmail): same shape (JSON over HTTP), different vendor.
+io-msgraph is a **protocol library**: a set of I/O-free coroutines for the [Microsoft Graph API](https://learn.microsoft.com/en-us/graph/api/overview). It sits one layer above [io-http](https://github.com/pimalaya/io-http) (HTTP/1.1) and [pimalaya-stream](https://github.com/pimalaya/stream) (TCP + TLS), and is consumed by [io-email](https://github.com/pimalaya/io-email) as the Microsoft Graph backend of the shared email domain API, which [himalaya](https://github.com/pimalaya/himalaya) drives through its cross-protocol commands (a dedicated `msgraph` command may be added later). It is the Microsoft Graph analogue of [io-gmail](https://github.com/pimalaya/io-gmail): same shape (JSON over HTTP), different vendor.
 
 Unlike io-gmail, which is scoped to Gmail's mail API, io-msgraph represents the **whole Microsoft Graph API**. This first release covers only the mail surface; sibling resources (calendars, contacts, drives, ...) will be added under the same tree over time.
 
@@ -45,7 +45,7 @@ Every coroutine is a thin, single-step wrapper holding the send directly (`struc
 
 ### Logging
 
-Each coroutine logs at two levels, via `use log::{debug, trace};`: `new()` opens with a static `debug!("prepare microsoft graph <thing> <op>")` followed by one `trace!` per input variable; `resume()`, once the send resolves, does `debug!("microsoft graph <thing> <verbed>")` then `trace!("out: {out:?}")`.
+Each coroutine logs at two levels, via `use log::{debug, trace};`: `debug!` carries the short human-readable phrase, and a `trace!` directly below dumps the data when there is any. `new()` opens with `debug!("prepare microsoft graph <thing> <op>")` followed by one `trace!` per input variable; `resume()`, once the send resolves, does `debug!("microsoft graph <thing> <verbed>")` then `trace!("out: {out:?}")`. Messages start lowercase and carry no trailing period.
 
 ## Authentication
 
@@ -85,4 +85,4 @@ Domain types are `Msgraph`-prefixed (`MsgraphMessage`, `MsgraphMailFolder`, `Msg
 
 ## Testing
 
-`tests/coroutines.rs` runs coroutines against in-memory HTTP responses (no network), covering parsing, error surfacing, the `$value` raw round-trip and `*Params` query serialisation. `tests/msgraph.rs` is an `#[ignore]`d end-to-end test against the live API, gated behind a TLS feature and driven by `MSGRAPH_ACCESS_TOKEN` (and optional `MSGRAPH_USER_ID`).
+`tests/coroutines.rs` runs each coroutine against in-memory HTTP responses (no network): per-operation request/response checks (user, mail folder list/create/delete, message list/update/move, raw `$value`, MIME sendMail), empty-name rejection, OData query serialisation and the Graph error envelope with its fallbacks. `tests/msgraph.rs` is an `#[ignore]`d end-to-end test exercising the full lifecycle (folder and draft create/get/update/move/delete plus sendMail) against the live API, gated behind a TLS feature and driven by `MSGRAPH_ACCESS_TOKEN` (and optional `MSGRAPH_USER_ID`).

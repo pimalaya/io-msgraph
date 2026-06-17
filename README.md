@@ -4,10 +4,11 @@ Microsoft Graph API client library for Rust.
 
 https://learn.microsoft.com/en-us/graph/api/overview
 
-This first release covers the mail surface (mail folders, messages and the sendMail action); other Graph resources will be added over time.
+It currently covers the mail surface; see [API coverage](#api-coverage) for the supported and planned Graph domains.
 
 ## Table of contents
 
+- [API coverage](#api-coverage)
 - [Usage](#usage)
 - [Examples](#examples)
 - [License](#license)
@@ -15,6 +16,20 @@ This first release covers the mail surface (mail folders, messages and the sendM
 - [Contributing](CONTRIBUTING.md)
 - [Social](#social)
 - [Sponsoring](#sponsoring)
+
+## API coverage
+
+Microsoft Graph is a single API spanning many domains; io-msgraph covers them incrementally and feature-gates each so consumers compile only what they use. This table tracks what is implemented today.
+
+| Domain     | Coverage                                                                                                                                                              | Status    |
+|------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
+| [Mail]     | mail folders (list, get, create, update, delete); messages (list, get, get raw MIME, create draft from JSON or MIME, update, delete, move, copy, send); attachments (list, get raw content, delete); sendMail (JSON and MIME); signed-in user (`me`) | Supported |
+| [Calendar] | events and calendars                                                                                                                                                 | Soon      |
+| [Contacts] | contacts and contact folders                                                                                                                                         | Soon      |
+
+[Mail]: https://learn.microsoft.com/en-us/graph/outlook-mail-concept-overview
+[Calendar]: https://learn.microsoft.com/en-us/graph/outlook-calendar-concept-overview
+[Contacts]: https://learn.microsoft.com/en-us/graph/outlook-contacts-concept-overview
 
 ## Usage
 

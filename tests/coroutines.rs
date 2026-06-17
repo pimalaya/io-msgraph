@@ -9,10 +9,19 @@ use io_msgraph::v1::{
         mail_folders::{
             MsgraphMailFolder, create::MsgraphMailFolderCreate, delete::MsgraphMailFolderDelete,
             list::MsgraphMailFoldersList, list::MsgraphMailFoldersListParams,
+            update::MsgraphMailFolderUpdate,
         },
         messages::{
-            MsgraphMessage, get_raw::MsgraphMessageGetRaw, list::MsgraphMessagesList,
-            list::MsgraphMessagesListParams, move_to::MsgraphMessageMove,
+            MsgraphMessage,
+            attachments::{
+                delete::MsgraphAttachmentDelete, get_raw::MsgraphAttachmentGetRaw,
+                list::MsgraphAttachmentsList,
+            },
+            create_mime::MsgraphMessageCreateMime,
+            get_raw::MsgraphMessageGetRaw,
+            list::MsgraphMessagesList,
+            list::MsgraphMessagesListParams,
+            move_to::MsgraphMessageMove,
             update::MsgraphMessageUpdate,
         },
         send_mail::MsgraphSendMailMime,
@@ -236,6 +245,102 @@ fn parse_api_error_falls_back_on_missing_message_and_non_json() {
     assert_eq!(status, 502);
     assert_eq!(code, "unknown");
     assert_eq!(message, "upstream failure");
+}
+
+#[test]
+fn updates_folder_patches_display_name() {
+    let body = r#"{ "id": "AAA", "displayName": "renamed" }"#;
+
+    let folder = MsgraphMailFolder {
+        display_name: "renamed".into(),
+        ..Default::default()
+    };
+    let mut coroutine = MsgraphMailFolderUpdate::new(&auth(), "me", "AAA", &folder).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+
+    assert_eq!(result.unwrap().response.display_name, "renamed");
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("PATCH /v1.0/me/mailFolders/AAA"),
+        "got: {request}"
+    );
+    assert!(
+        request.contains("\"displayName\":\"renamed\""),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn create_mime_base64_encodes_to_messages() {
+    let mime = b"From: a@b.c\r\nSubject: hi\r\n\r\nbody";
+    let body = r#"{ "id": "DRAFT1", "isDraft": true }"#;
+
+    let mut coroutine = MsgraphMessageCreateMime::new(&auth(), "me", None, mime).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 201 Created", body));
+
+    assert_eq!(result.unwrap().response.id, "DRAFT1");
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("POST /v1.0/me/messages"),
+        "got: {request}"
+    );
+    assert!(request.contains("Content-Type: text/plain"));
+    let expected = "RnJvbTogYUBiLmMNClN1YmplY3Q6IGhpDQoNCmJvZHk=";
+    assert!(request.contains(expected), "got: {request}");
+}
+
+#[test]
+fn lists_message_attachments() {
+    let body = r#"{
+        "value": [
+            { "id": "ATT1", "name": "report.pdf", "contentType": "application/pdf", "size": 1024 }
+        ]
+    }"#;
+
+    let mut coroutine = MsgraphAttachmentsList::new(&auth(), "me", "ID1").unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let out = result.unwrap();
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/messages/ID1/attachments"),
+        "got: {request}"
+    );
+    assert_eq!(out.response.value.len(), 1);
+    assert_eq!(out.response.value[0].name.as_deref(), Some("report.pdf"));
+    assert_eq!(out.response.value[0].size, Some(1024));
+}
+
+#[test]
+fn attachment_get_raw_returns_bytes() {
+    let content = b"%PDF-1.7 ...";
+
+    let mut coroutine = MsgraphAttachmentGetRaw::new(&auth(), "me", "ID1", "ATT1").unwrap();
+    let (result, written) = run(&mut coroutine, &text_response("HTTP/1.1 200 OK", content));
+    let out = result.unwrap();
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.contains("/v1.0/me/messages/ID1/attachments/ATT1/$value"),
+        "got: {request}"
+    );
+    assert_eq!(out.response, content);
+}
+
+#[test]
+fn deletes_attachment_issues_delete() {
+    let mut coroutine = MsgraphAttachmentDelete::new(&auth(), "me", "ID1", "ATT1").unwrap();
+    let (result, written) = run(&mut coroutine, &empty_response("HTTP/1.1 204 No Content"));
+
+    result.unwrap();
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("DELETE /v1.0/me/messages/ID1/attachments/ATT1"),
+        "got: {request}"
+    );
 }
 
 #[test]

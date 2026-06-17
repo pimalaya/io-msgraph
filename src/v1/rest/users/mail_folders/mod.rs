@@ -1,5 +1,5 @@
 //! Microsoft Graph mail folders (`users.mailFolders`): list, get,
-//! create, delete.
+//! create, update, delete.
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/resources/mailfolder>
 
@@ -11,3 +11,4 @@ pub mod create;
 pub mod delete;
 pub mod get;
 pub mod list;
+pub mod update;

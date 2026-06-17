@@ -56,12 +56,24 @@ use crate::{
             MsgraphMailFolder, MsgraphMailFoldersListResponse, create::MsgraphMailFolderCreate,
             delete::MsgraphMailFolderDelete, get::MsgraphMailFolderGet,
             list::MsgraphMailFoldersList, list::MsgraphMailFoldersListParams,
+            update::MsgraphMailFolderUpdate,
         },
         messages::{
-            MsgraphMessage, MsgraphMessagesListResponse, copy::MsgraphMessageCopy,
-            create::MsgraphMessageCreate, delete::MsgraphMessageDelete, get::MsgraphMessageGet,
-            get_raw::MsgraphMessageGetRaw, list::MsgraphMessagesList,
-            list::MsgraphMessagesListParams, move_to::MsgraphMessageMove, send::MsgraphMessageSend,
+            MsgraphMessage, MsgraphMessagesListResponse,
+            attachments::{
+                MsgraphAttachmentsListResponse, delete::MsgraphAttachmentDelete,
+                get_raw::MsgraphAttachmentGetRaw, list::MsgraphAttachmentsList,
+            },
+            copy::MsgraphMessageCopy,
+            create::MsgraphMessageCreate,
+            create_mime::MsgraphMessageCreateMime,
+            delete::MsgraphMessageDelete,
+            get::MsgraphMessageGet,
+            get_raw::MsgraphMessageGetRaw,
+            list::MsgraphMessagesList,
+            list::MsgraphMessagesListParams,
+            move_to::MsgraphMessageMove,
+            send::MsgraphMessageSend,
             update::MsgraphMessageUpdate,
         },
         send_mail::{MsgraphSendMail, MsgraphSendMailMime},
@@ -245,6 +257,15 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    pub fn mail_folder_update(
+        &mut self,
+        id: &str,
+        folder: &MsgraphMailFolder,
+    ) -> Result<MsgraphSendOutput<MsgraphMailFolder>, MsgraphClientStdError> {
+        let coroutine = MsgraphMailFolderUpdate::new(&self.auth, &self.user_id, id, folder)?;
+        self.run(coroutine)
+    }
+
     pub fn mail_folder_delete(
         &mut self,
         id: &str,
@@ -287,6 +308,15 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    pub fn message_create_mime(
+        &mut self,
+        folder: Option<&str>,
+        raw: &[u8],
+    ) -> Result<MsgraphSendOutput<MsgraphMessage>, MsgraphClientStdError> {
+        let coroutine = MsgraphMessageCreateMime::new(&self.auth, &self.user_id, folder, raw)?;
+        self.run(coroutine)
+    }
+
     pub fn message_update(
         &mut self,
         id: &str,
@@ -319,6 +349,34 @@ impl MsgraphClientStd {
         destination: &str,
     ) -> Result<MsgraphSendOutput<MsgraphMessage>, MsgraphClientStdError> {
         let coroutine = MsgraphMessageCopy::new(&self.auth, &self.user_id, id, destination)?;
+        self.run(coroutine)
+    }
+
+    pub fn attachments_list(
+        &mut self,
+        message_id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphAttachmentsListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphAttachmentsList::new(&self.auth, &self.user_id, message_id)?;
+        self.run(coroutine)
+    }
+
+    pub fn attachment_get_raw(
+        &mut self,
+        message_id: &str,
+        attachment_id: &str,
+    ) -> Result<MsgraphSendOutput<Vec<u8>>, MsgraphClientStdError> {
+        let coroutine =
+            MsgraphAttachmentGetRaw::new(&self.auth, &self.user_id, message_id, attachment_id)?;
+        self.run(coroutine)
+    }
+
+    pub fn attachment_delete(
+        &mut self,
+        message_id: &str,
+        attachment_id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphNoResponse>, MsgraphClientStdError> {
+        let coroutine =
+            MsgraphAttachmentDelete::new(&self.auth, &self.user_id, message_id, attachment_id)?;
         self.run(coroutine)
     }
 
