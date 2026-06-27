@@ -53,16 +53,19 @@ use crate::{
         MsgraphUser,
         get::MsgraphUserGet,
         mail_folders::{
-            MsgraphMailFolder, MsgraphMailFoldersListResponse, create::MsgraphMailFolderCreate,
-            delete::MsgraphMailFolderDelete, get::MsgraphMailFolderGet,
-            list::MsgraphMailFoldersList, list::MsgraphMailFoldersListParams,
+            MsgraphMailFolder, MsgraphMailFoldersListResponse,
+            child_folders::MsgraphChildFoldersList, copy::MsgraphMailFolderCopy,
+            create::MsgraphMailFolderCreate, delete::MsgraphMailFolderDelete,
+            get::MsgraphMailFolderGet, list::MsgraphMailFoldersList,
+            list::MsgraphMailFoldersListParams, r#move::MsgraphMailFolderMove,
             update::MsgraphMailFolderUpdate,
         },
         messages::{
             MsgraphMessage, MsgraphMessagesListResponse,
             attachments::{
-                MsgraphAttachmentsListResponse, delete::MsgraphAttachmentDelete,
-                get_raw::MsgraphAttachmentGetRaw, list::MsgraphAttachmentsList,
+                MsgraphAttachment, MsgraphAttachmentsListResponse, create::MsgraphAttachmentCreate,
+                delete::MsgraphAttachmentDelete, get_raw::MsgraphAttachmentGetRaw,
+                list::MsgraphAttachmentsList,
             },
             copy::MsgraphMessageCopy,
             create::MsgraphMessageCreate,
@@ -274,6 +277,33 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    pub fn mail_folder_copy(
+        &mut self,
+        id: &str,
+        destination: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphMailFolder>, MsgraphClientStdError> {
+        let coroutine = MsgraphMailFolderCopy::new(&self.auth, &self.user_id, id, destination)?;
+        self.run(coroutine)
+    }
+
+    pub fn mail_folder_move(
+        &mut self,
+        id: &str,
+        destination: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphMailFolder>, MsgraphClientStdError> {
+        let coroutine = MsgraphMailFolderMove::new(&self.auth, &self.user_id, id, destination)?;
+        self.run(coroutine)
+    }
+
+    pub fn child_folders_list(
+        &mut self,
+        id: &str,
+        params: &MsgraphMailFoldersListParams,
+    ) -> Result<MsgraphSendOutput<MsgraphMailFoldersListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphChildFoldersList::new(&self.auth, &self.user_id, id, params)?;
+        self.run(coroutine)
+    }
+
     pub fn messages_list(
         &mut self,
         folder: Option<&str>,
@@ -349,6 +379,24 @@ impl MsgraphClientStd {
         destination: &str,
     ) -> Result<MsgraphSendOutput<MsgraphMessage>, MsgraphClientStdError> {
         let coroutine = MsgraphMessageCopy::new(&self.auth, &self.user_id, id, destination)?;
+        self.run(coroutine)
+    }
+
+    pub fn attachment_create(
+        &mut self,
+        message_id: &str,
+        name: &str,
+        content: &[u8],
+        content_type: Option<&str>,
+    ) -> Result<MsgraphSendOutput<MsgraphAttachment>, MsgraphClientStdError> {
+        let coroutine = MsgraphAttachmentCreate::new(
+            &self.auth,
+            &self.user_id,
+            message_id,
+            name,
+            content,
+            content_type,
+        )?;
         self.run(coroutine)
     }
 

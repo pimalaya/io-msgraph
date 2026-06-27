@@ -35,6 +35,10 @@ pub struct MsgraphMessagesListParams<'a> {
     pub orderby: Option<&'a str>,
     #[serde(rename = "$count")]
     pub count: Option<bool>,
+    /// OData `$search` over the message collection (e.g. `"subject:foo"`
+    /// or a bare term); Graph wraps a bare term as a free-text search.
+    #[serde(rename = "$search")]
+    pub search: Option<&'a str>,
 }
 
 pub struct MsgraphMessagesList {
