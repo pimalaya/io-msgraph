@@ -51,6 +51,18 @@ use crate::{
     coroutine::*,
     v1::rest::users::{
         MsgraphUser,
+        contact_folders::{
+            MsgraphContactFolder, MsgraphContactFoldersListResponse,
+            child_folders::MsgraphContactChildFoldersList, create::MsgraphContactFolderCreate,
+            delete::MsgraphContactFolderDelete, get::MsgraphContactFolderGet,
+            list::MsgraphContactFoldersList, list::MsgraphContactFoldersListParams,
+            update::MsgraphContactFolderUpdate,
+        },
+        contacts::{
+            MsgraphContact, MsgraphContactsListResponse, create::MsgraphContactCreate,
+            delete::MsgraphContactDelete, get::MsgraphContactGet, list::MsgraphContactsList,
+            list::MsgraphContactsListParams, update::MsgraphContactUpdate,
+        },
         get::MsgraphUserGet,
         mail_folders::{
             MsgraphMailFolder, MsgraphMailFoldersListResponse,
@@ -301,6 +313,100 @@ impl MsgraphClientStd {
         params: &MsgraphMailFoldersListParams,
     ) -> Result<MsgraphSendOutput<MsgraphMailFoldersListResponse>, MsgraphClientStdError> {
         let coroutine = MsgraphChildFoldersList::new(&self.auth, &self.user_id, id, params)?;
+        self.run(coroutine)
+    }
+
+    pub fn contact_folders_list(
+        &mut self,
+        params: &MsgraphContactFoldersListParams,
+    ) -> Result<MsgraphSendOutput<MsgraphContactFoldersListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactFoldersList::new(&self.auth, &self.user_id, params)?;
+        self.run(coroutine)
+    }
+
+    pub fn contact_folder_get(
+        &mut self,
+        id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphContactFolder>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactFolderGet::new(&self.auth, &self.user_id, id)?;
+        self.run(coroutine)
+    }
+
+    pub fn contact_folder_create(
+        &mut self,
+        folder: &MsgraphContactFolder,
+    ) -> Result<MsgraphSendOutput<MsgraphContactFolder>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactFolderCreate::new(&self.auth, &self.user_id, folder)?;
+        self.run(coroutine)
+    }
+
+    pub fn contact_folder_update(
+        &mut self,
+        id: &str,
+        folder: &MsgraphContactFolder,
+    ) -> Result<MsgraphSendOutput<MsgraphContactFolder>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactFolderUpdate::new(&self.auth, &self.user_id, id, folder)?;
+        self.run(coroutine)
+    }
+
+    pub fn contact_folder_delete(
+        &mut self,
+        id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphNoResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactFolderDelete::new(&self.auth, &self.user_id, id)?;
+        self.run(coroutine)
+    }
+
+    pub fn contact_child_folders_list(
+        &mut self,
+        id: &str,
+        params: &MsgraphContactFoldersListParams,
+    ) -> Result<MsgraphSendOutput<MsgraphContactFoldersListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactChildFoldersList::new(&self.auth, &self.user_id, id, params)?;
+        self.run(coroutine)
+    }
+
+    pub fn contacts_list(
+        &mut self,
+        folder: Option<&str>,
+        params: &MsgraphContactsListParams,
+    ) -> Result<MsgraphSendOutput<MsgraphContactsListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactsList::new(&self.auth, &self.user_id, folder, params)?;
+        self.run(coroutine)
+    }
+
+    pub fn contact_get(
+        &mut self,
+        id: &str,
+        expand: Option<&str>,
+    ) -> Result<MsgraphSendOutput<MsgraphContact>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactGet::new(&self.auth, &self.user_id, id, expand)?;
+        self.run(coroutine)
+    }
+
+    pub fn contact_create(
+        &mut self,
+        folder: Option<&str>,
+        contact: &MsgraphContact,
+    ) -> Result<MsgraphSendOutput<MsgraphContact>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactCreate::new(&self.auth, &self.user_id, folder, contact)?;
+        self.run(coroutine)
+    }
+
+    pub fn contact_update(
+        &mut self,
+        id: &str,
+        contact: &MsgraphContact,
+    ) -> Result<MsgraphSendOutput<MsgraphContact>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactUpdate::new(&self.auth, &self.user_id, id, contact)?;
+        self.run(coroutine)
+    }
+
+    pub fn contact_delete(
+        &mut self,
+        id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphNoResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactDelete::new(&self.auth, &self.user_id, id)?;
         self.run(coroutine)
     }
 

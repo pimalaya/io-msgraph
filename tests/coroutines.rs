@@ -3,8 +3,18 @@ mod common;
 use common::{empty_response, json_response, run, text_response};
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use io_msgraph::v1::{
+    MsgraphField,
     query::to_query_pairs,
     rest::users::{
+        contact_folders::{
+            MsgraphContactFolder, create::MsgraphContactFolderCreate,
+            delete::MsgraphContactFolderDelete, list::MsgraphContactFoldersList,
+        },
+        contacts::{
+            MsgraphContact, create::MsgraphContactCreate, delete::MsgraphContactDelete,
+            list::MsgraphContactsList, list::MsgraphContactsListParams,
+            update::MsgraphContactUpdate,
+        },
         get::MsgraphUserGet,
         mail_folders::{
             MsgraphMailFolder, create::MsgraphMailFolderCreate, delete::MsgraphMailFolderDelete,
@@ -12,7 +22,7 @@ use io_msgraph::v1::{
             update::MsgraphMailFolderUpdate,
         },
         messages::{
-            MsgraphMessage,
+            MsgraphEmailAddress, MsgraphMessage,
             attachments::{
                 delete::MsgraphAttachmentDelete, get_raw::MsgraphAttachmentGetRaw,
                 list::MsgraphAttachmentsList,
@@ -339,6 +349,173 @@ fn deletes_attachment_issues_delete() {
     let request = String::from_utf8_lossy(&written);
     assert!(
         request.starts_with("DELETE /v1.0/me/messages/ID1/attachments/ATT1"),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn contact_folders_list_parses_value() {
+    let body = r#"{
+        "value": [
+            { "id": "AAA", "displayName": "Contacts" },
+            { "id": "BBB", "displayName": "Work", "parentFolderId": "AAA" }
+        ]
+    }"#;
+
+    let mut coroutine = MsgraphContactFoldersList::new(&auth(), "me", &Default::default()).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let out = result.unwrap();
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(request.starts_with("GET /v1.0/me/contactFolders"));
+
+    assert_eq!(out.response.value.len(), 2);
+    assert_eq!(out.response.value[0].id, "AAA");
+    assert_eq!(out.response.value[0].display_name, "Contacts");
+    assert_eq!(
+        out.response.value[1].parent_folder_id.as_deref(),
+        Some("AAA")
+    );
+}
+
+#[test]
+fn creates_contact_folder_posts_display_name() {
+    let body = r#"{ "id": "AAA", "displayName": "friends" }"#;
+
+    let folder = MsgraphContactFolder {
+        display_name: "friends".into(),
+        ..Default::default()
+    };
+    let mut coroutine = MsgraphContactFolderCreate::new(&auth(), "me", &folder).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 201 Created", body));
+
+    assert_eq!(result.unwrap().response.id, "AAA");
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(request.starts_with("POST /v1.0/me/contactFolders"));
+    assert!(
+        request.contains("\"displayName\":\"friends\""),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn rejects_empty_contact_folder_name() {
+    let folder = MsgraphContactFolder {
+        display_name: "  ".into(),
+        ..Default::default()
+    };
+    let result = MsgraphContactFolderCreate::new(&auth(), "me", &folder);
+    assert!(matches!(result, Err(MsgraphSendError::InvalidRequest(_))));
+}
+
+#[test]
+fn deletes_contact_folder_issues_delete() {
+    let mut coroutine = MsgraphContactFolderDelete::new(&auth(), "me", "AAA").unwrap();
+    let (result, written) = run(&mut coroutine, &empty_response("HTTP/1.1 204 No Content"));
+
+    result.unwrap();
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("DELETE /v1.0/me/contactFolders/AAA"),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn contacts_list_builds_odata_query() {
+    let params = MsgraphContactsListParams {
+        top: Some(5),
+        select: Some("id,displayName,emailAddresses"),
+        orderby: Some("displayName"),
+        ..Default::default()
+    };
+
+    let mut coroutine = MsgraphContactsList::new(&auth(), "me", Some("AAA"), &params).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 200 OK", r#"{ "value": [] }"#),
+    );
+    assert!(result.is_ok());
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(request.contains("/v1.0/me/contactFolders/AAA/contacts"));
+    assert!(request.contains("%24top=5"));
+    assert!(request.contains("%24select=id%2CdisplayName%2CemailAddresses"));
+    assert!(request.contains("%24orderby=displayName"));
+    // unset params do not appear
+    assert!(!request.contains("%24skip"));
+    assert!(!request.contains("%24filter"));
+}
+
+#[test]
+fn creates_contact_posts_email_addresses() {
+    let body = r#"{ "id": "CT1", "givenName": "Alice" }"#;
+
+    let contact = MsgraphContact {
+        given_name: MsgraphField::Set("Alice".into()),
+        email_addresses: MsgraphField::Set(vec![MsgraphEmailAddress {
+            name: Some("Alice".into()),
+            address: Some("alice@example.com".into()),
+        }]),
+        ..Default::default()
+    };
+    let mut coroutine = MsgraphContactCreate::new(&auth(), "me", None, &contact).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 201 Created", body));
+
+    assert_eq!(result.unwrap().response.id, "CT1");
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("POST /v1.0/me/contacts"),
+        "got: {request}"
+    );
+    assert!(
+        request.contains("\"givenName\":\"Alice\""),
+        "got: {request}"
+    );
+    assert!(
+        request.contains(
+            "\"emailAddresses\":[{\"name\":\"Alice\",\"address\":\"alice@example.com\"}]"
+        ),
+        "got: {request}"
+    );
+    // unset fields do not appear in the JSON body
+    assert!(!request.contains("\"surname\""), "got: {request}");
+}
+
+#[test]
+fn updates_contact_patches_given_name() {
+    let body = r#"{ "id": "CT1", "givenName": "Bob" }"#;
+
+    let patch = MsgraphContact {
+        given_name: MsgraphField::Set("Bob".into()),
+        ..Default::default()
+    };
+    let mut coroutine = MsgraphContactUpdate::new(&auth(), "me", "CT1", &patch).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+
+    assert_eq!(result.unwrap().response.given_name.as_deref(), Some("Bob"));
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("PATCH /v1.0/me/contacts/CT1"),
+        "got: {request}"
+    );
+    assert!(request.contains("\"givenName\":\"Bob\""), "got: {request}");
+}
+
+#[test]
+fn deletes_contact_issues_delete() {
+    let mut coroutine = MsgraphContactDelete::new(&auth(), "me", "CT1").unwrap();
+    let (result, written) = run(&mut coroutine, &empty_response("HTTP/1.1 204 No Content"));
+
+    result.unwrap();
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("DELETE /v1.0/me/contacts/CT1"),
         "got: {request}"
     );
 }
