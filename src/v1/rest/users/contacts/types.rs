@@ -129,3 +129,37 @@ pub struct MsgraphContactsListResponse {
     #[serde(default, rename = "@odata.nextLink")]
     pub next_link: Option<String>,
 }
+
+/// One page of a contacts delta round: more pages follow through
+/// `next_link`, the round ends when `delta_link` arrives (the token of
+/// the next round).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct MsgraphContactsDeltaResponse {
+    #[serde(default)]
+    pub value: Vec<MsgraphContactDelta>,
+    #[serde(default, rename = "@odata.nextLink")]
+    pub next_link: Option<String>,
+    #[serde(default, rename = "@odata.deltaLink")]
+    pub delta_link: Option<String>,
+}
+
+/// One contact row of a delta page: the contact (only its id when the
+/// row is a removal), plus the `@removed` marker.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct MsgraphContactDelta {
+    #[serde(flatten)]
+    pub contact: MsgraphContact,
+    #[serde(default, rename = "@removed", skip_serializing_if = "Option::is_none")]
+    pub removed: Option<MsgraphRemoved>,
+}
+
+/// The `@removed` marker of a delta row.
+///
+/// <https://learn.microsoft.com/en-us/graph/delta-query-overview>
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct MsgraphRemoved {
+    /// `deleted` for a hard delete, `changed` for an item that left
+    /// the queried scope.
+    #[serde(default)]
+    pub reason: String,
+}
