@@ -436,7 +436,8 @@ dependencies = [
 [[package]]
 name = "io-http"
 version = "0.2.0"
-source = "git+https://github.com/pimalaya/io-http#6e169ff2d82b34591513b1f3f707db39ccd25a68"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fec6375fe3856a07a89717f15988ed763b51a95349bdd6f09383bb94f1338f1"
 dependencies = [
  "base64",
  "httparse",
@@ -1081,9 +1082,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
-version = "2.0.118"
+version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b9ae57f904213ebb649ce6895b8a66c66f0203b9319718f69a5612a065b1422"
+checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
 dependencies = [
  "proc-macro2",
  "quote",
