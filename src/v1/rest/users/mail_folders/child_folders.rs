@@ -22,11 +22,13 @@ use crate::{
 };
 
 /// Lists the child folders of a Microsoft Graph mail folder.
-pub struct MsgraphChildFoldersList {
+pub struct MsgraphMailChildFoldersList {
     send: MsgraphSend<MsgraphMailFoldersListResponse>,
 }
 
-impl MsgraphChildFoldersList {
+impl MsgraphMailChildFoldersList {
+    /// Lists the child folders of the mail folder `id`, filtered by
+    /// the OData `params`.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -48,13 +50,13 @@ impl MsgraphChildFoldersList {
     }
 }
 
-impl MsgraphCoroutine for MsgraphChildFoldersList {
+impl MsgraphCoroutine for MsgraphMailChildFoldersList {
     type Yield = MsgraphYield;
     type Return = Result<MsgraphSendOutput<MsgraphMailFoldersListResponse>, MsgraphSendError>;
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph child folders listed");
+        debug!("child folders listed");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

@@ -18,11 +18,14 @@ use crate::{
     },
 };
 
+/// Deletes an attachment of a Microsoft Graph message.
 pub struct MsgraphAttachmentDelete {
     send: MsgraphSend<MsgraphNoResponse>,
 }
 
 impl MsgraphAttachmentDelete {
+    /// Deletes the attachment `attachment_id` of the message
+    /// `message_id`.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -49,7 +52,7 @@ impl MsgraphCoroutine for MsgraphAttachmentDelete {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph attachment deleted");
+        debug!("attachment deleted");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

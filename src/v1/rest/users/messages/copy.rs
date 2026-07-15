@@ -25,6 +25,7 @@ struct MsgraphMessageCopyRequest<'a> {
     destination_id: &'a str,
 }
 
+/// Copies a Microsoft Graph message into another folder.
 pub struct MsgraphMessageCopy {
     send: MsgraphSend<MsgraphMessage>,
 }
@@ -59,7 +60,7 @@ impl MsgraphCoroutine for MsgraphMessageCopy {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph message copied");
+        debug!("message copied");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

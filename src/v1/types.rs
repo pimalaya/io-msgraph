@@ -1,9 +1,9 @@
-//! # Microsoft Graph field
-//!
 //! Shared tri-state for the writable fields of Graph resources,
 //! distinguishing a field left out of a PATCH body from one explicitly
 //! cleared. See the update semantics at
 //! <https://learn.microsoft.com/en-us/graph/api/contact-update>.
+
+use core::ops::Deref;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -51,9 +51,10 @@ impl<T> MsgraphField<T> {
         }
     }
 
-    /// `Set` for `Some`, `Null` for `None`: the natural encoding of a
-    /// full-state update body, where every managed field is either
-    /// replaced or cleared.
+    /// `Set` for `Some`, `Null` for `None`.
+    ///
+    /// This is the natural encoding of a full-state update body, where
+    /// every managed field is either replaced or cleared.
     pub fn set_or_null(value: Option<T>) -> Self {
         match value {
             Some(value) => Self::Set(value),
@@ -62,7 +63,7 @@ impl<T> MsgraphField<T> {
     }
 }
 
-impl<T: core::ops::Deref> MsgraphField<T> {
+impl<T: Deref> MsgraphField<T> {
     /// The set value dereferenced (e.g. `&str` out of a `String`
     /// field), `None` for both unset and null.
     pub fn as_deref(&self) -> Option<&T::Target> {
@@ -104,7 +105,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
-    use super::*;
+    use crate::v1::MsgraphField;
 
     #[derive(Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
     struct Body {

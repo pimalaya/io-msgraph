@@ -1,13 +1,15 @@
 [package]
 name = "io-msgraph"
-description = "Microsoft Graph API client library"
-version = "0.0.1"
+description = "Microsoft Graph API client library for Rust"
+version = "0.1.0"
 authors = ["soywod <pimalaya.org@posteo.net>"]
 rust-version = "1.87"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-categories = ["api-bindings", "email"]
-keywords = ["io-free", "coroutine", "microsoft", "graph", "rest"]
+categories = ["api-bindings", "email", "no-std"]
+keywords = ["io-free", "no-std", "coroutine", "microsoft", "graph"]
+homepage = "https://pimalaya.org"
+documentation = "https://docs.rs/io-msgraph/latest/io_msgraph"
 repository = "https://github.com/pimalaya/io-msgraph"
 
 [package.metadata.docs.rs]
@@ -26,17 +28,14 @@ vendored = ["pimalaya-stream?/vendored"]
 env_logger = "0.11"
 rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12"] }
 rustls-platform-verifier = "0.7"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util"] }
-tokio-rustls = "0.26"
 
 [dependencies]
 anyhow = { version = "1", optional = true }
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
-io-http = { version = "0.2", default-features = false }
+io-http = { version = "0.3", default-features = false }
 log = { version = "0.4", default-features = false }
-pimalaya-stream = { version = "0.0.1", default-features = false, optional = true }
+pimalaya-stream = { version = "0.1", default-features = false, optional = true }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
-serde_variant = { version = "0.1", default-features = false }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 thiserror = { version = "2", default-features = false }
 url = { version = "2.5", default-features = false, features = ["serde"] }

@@ -2,7 +2,7 @@
 //! (`GET /me/messages/{id}/attachments/{aid}/$value`).
 //!
 //! Like the message `$value` endpoint, this returns the decoded
-//! attachment bytes rather than JSON, so it drives the HTTP send
+//! attachment bytes rather than JSON, so it runs the HTTP send
 //! directly and yields the body bytes.
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/attachment-get>
@@ -26,11 +26,14 @@ use crate::{
     v1::send::{MSGRAPH_API_BASE, MsgraphSendError, MsgraphSendOutput, parse_api_error, user_path},
 };
 
+/// Gets the raw content of a Microsoft Graph attachment.
 pub struct MsgraphAttachmentGetRaw {
     send: Http11Send,
 }
 
 impl MsgraphAttachmentGetRaw {
+    /// Gets the raw content of the attachment `attachment_id` of the
+    /// message `message_id`.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -45,10 +48,8 @@ impl MsgraphAttachmentGetRaw {
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!(
             "{user}/messages/{message_id}/attachments/{attachment_id}/$value"
         ))?;
-        let host = url.host_str().unwrap_or("localhost");
 
         let request = HttpRequest::get(url.clone())
-            .header("Host", host)
             .header("Authorization", auth.to_authorization())
             .body(Vec::new());
 
@@ -82,7 +83,7 @@ impl MsgraphCoroutine for MsgraphAttachmentGetRaw {
                 ..
             })) => {
                 if response.status.is_success() {
-                    debug!("microsoft graph attachment raw retrieved");
+                    debug!("attachment raw retrieved");
                     MsgraphCoroutineState::Complete(Ok(MsgraphSendOutput {
                         response: response.body,
                         keep_alive,

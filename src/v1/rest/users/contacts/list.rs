@@ -23,22 +23,30 @@ use crate::{
 /// OData query parameters for listing contacts.
 #[derive(Debug, Clone, Default, Serialize, Eq, PartialEq)]
 pub struct MsgraphContactsListParams<'a> {
+    /// Maximum number of contacts per page (`$top`).
     #[serde(rename = "$top")]
     pub top: Option<u32>,
+    /// Number of contacts to skip (`$skip`).
     #[serde(rename = "$skip")]
     pub skip: Option<u32>,
+    /// Comma-separated properties to return (`$select`).
     #[serde(rename = "$select")]
     pub select: Option<&'a str>,
+    /// OData filter expression (`$filter`).
     #[serde(rename = "$filter")]
     pub filter: Option<&'a str>,
+    /// Comma-separated sort properties (`$orderby`).
     #[serde(rename = "$orderby")]
     pub orderby: Option<&'a str>,
+    /// Navigation clause to expand (`$expand`).
     #[serde(rename = "$expand")]
     pub expand: Option<&'a str>,
+    /// Whether the total count rides along the page (`$count`).
     #[serde(rename = "$count")]
     pub count: Option<bool>,
 }
 
+/// Lists the Microsoft Graph contacts of a contact folder.
 pub struct MsgraphContactsList {
     send: MsgraphSend<MsgraphContactsListResponse>,
 }
@@ -76,7 +84,7 @@ impl MsgraphCoroutine for MsgraphContactsList {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph contacts listed");
+        debug!("contacts listed");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

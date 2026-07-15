@@ -25,15 +25,17 @@ use crate::{
 };
 
 /// I/O-free coroutine for the initial contacts delta request; later
-/// rounds drive the returned links through [`MsgraphSend`] directly.
+/// rounds feed the returned links through [`MsgraphSend`] directly.
 pub struct MsgraphContactsDelta {
     send: MsgraphSend<MsgraphContactsDeltaResponse>,
 }
 
 impl MsgraphContactsDelta {
     /// Starts a delta round over the default Contacts folder, or over
-    /// `folder` when given (a contact folder id). `select` trims each
-    /// row to the named properties (the id always rides along).
+    /// `folder` when given (a contact folder id).
+    ///
+    /// `select` trims each row to the named properties (the id always
+    /// rides along).
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -65,7 +67,7 @@ impl MsgraphCoroutine for MsgraphContactsDelta {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph contacts delta page received");
+        debug!("contacts delta page received");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

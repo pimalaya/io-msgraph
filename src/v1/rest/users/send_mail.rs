@@ -25,17 +25,19 @@ use crate::{
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MsgraphSendMailRequest<'a> {
+struct MsgraphMailSendRequest<'a> {
     message: &'a MsgraphMessage,
     save_to_sent_items: bool,
 }
 
 /// Send a message described as a JSON [`MsgraphMessage`].
-pub struct MsgraphSendMail {
+pub struct MsgraphMailSend {
     send: MsgraphSend<MsgraphNoResponse>,
 }
 
-impl MsgraphSendMail {
+impl MsgraphMailSend {
+    /// Sends `message`, saving it to Sent Items when
+    /// `save_to_sent_items` is set.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -47,7 +49,7 @@ impl MsgraphSendMail {
         trace!("save_to_sent_items: {save_to_sent_items:?}");
 
         let url = mail_url(user_id)?;
-        let body = MsgraphSendMailRequest {
+        let body = MsgraphMailSendRequest {
             message,
             save_to_sent_items,
         };
@@ -57,13 +59,13 @@ impl MsgraphSendMail {
     }
 }
 
-impl MsgraphCoroutine for MsgraphSendMail {
+impl MsgraphCoroutine for MsgraphMailSend {
     type Yield = MsgraphYield;
     type Return = Result<MsgraphSendOutput<MsgraphNoResponse>, MsgraphSendError>;
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph mail sent (json)");
+        debug!("mail sent (json)");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }
@@ -71,11 +73,12 @@ impl MsgraphCoroutine for MsgraphSendMail {
 
 /// Send a message given as raw RFC 5322 MIME bytes; the MIME is
 /// base64-encoded and posted as `text/plain`, as Graph requires.
-pub struct MsgraphSendMailMime {
+pub struct MsgraphMailSendMime {
     send: MsgraphSend<MsgraphNoResponse>,
 }
 
-impl MsgraphSendMailMime {
+impl MsgraphMailSendMime {
+    /// Sends the message given as `raw` RFC 5322 MIME bytes.
     pub fn new(auth: &HttpAuthBearer, user_id: &str, raw: &[u8]) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph mail send (mime)");
         trace!("raw len: {}", raw.len());
@@ -88,13 +91,13 @@ impl MsgraphSendMailMime {
     }
 }
 
-impl MsgraphCoroutine for MsgraphSendMailMime {
+impl MsgraphCoroutine for MsgraphMailSendMime {
     type Yield = MsgraphYield;
     type Return = Result<MsgraphSendOutput<MsgraphNoResponse>, MsgraphSendError>;
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph mail sent (mime)");
+        debug!("mail sent (mime)");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

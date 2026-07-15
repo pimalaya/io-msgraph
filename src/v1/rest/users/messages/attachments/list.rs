@@ -18,11 +18,13 @@ use crate::{
     },
 };
 
+/// Lists the attachments of a Microsoft Graph message.
 pub struct MsgraphAttachmentsList {
     send: MsgraphSend<MsgraphAttachmentsListResponse>,
 }
 
 impl MsgraphAttachmentsList {
+    /// Lists the attachments of the message `message_id`.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -46,7 +48,7 @@ impl MsgraphCoroutine for MsgraphAttachmentsList {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph attachments listed");
+        debug!("attachments listed");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

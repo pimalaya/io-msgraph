@@ -23,16 +23,22 @@ use crate::{
 /// OData query parameters for listing messages.
 #[derive(Debug, Clone, Default, Serialize, Eq, PartialEq)]
 pub struct MsgraphMessagesListParams<'a> {
+    /// Maximum number of messages per page (`$top`).
     #[serde(rename = "$top")]
     pub top: Option<u32>,
+    /// Number of messages to skip (`$skip`).
     #[serde(rename = "$skip")]
     pub skip: Option<u32>,
+    /// Comma-separated properties to return (`$select`).
     #[serde(rename = "$select")]
     pub select: Option<&'a str>,
+    /// OData filter expression (`$filter`).
     #[serde(rename = "$filter")]
     pub filter: Option<&'a str>,
+    /// Comma-separated sort properties (`$orderby`).
     #[serde(rename = "$orderby")]
     pub orderby: Option<&'a str>,
+    /// Whether the total count rides along the page (`$count`).
     #[serde(rename = "$count")]
     pub count: Option<bool>,
     /// OData `$search` over the message collection (e.g. `"subject:foo"`
@@ -41,6 +47,7 @@ pub struct MsgraphMessagesListParams<'a> {
     pub search: Option<&'a str>,
 }
 
+/// Lists the Microsoft Graph messages of a mailbox or mail folder.
 pub struct MsgraphMessagesList {
     send: MsgraphSend<MsgraphMessagesListResponse>,
 }
@@ -78,7 +85,7 @@ impl MsgraphCoroutine for MsgraphMessagesList {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph messages listed");
+        debug!("messages listed");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

@@ -42,9 +42,11 @@ pub struct MsgraphAttachmentCreate {
 }
 
 impl MsgraphAttachmentCreate {
-    /// Adds a `fileAttachment` named `name` carrying `content` (raw bytes
-    /// base64-encoded into `contentBytes`), with an optional MIME
-    /// `content_type`.
+    /// Adds a `fileAttachment` named `name` carrying `content`, with
+    /// an optional MIME `content_type`.
+    ///
+    /// The raw content bytes are base64-encoded into `contentBytes`,
+    /// as Graph requires.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -79,7 +81,7 @@ impl MsgraphCoroutine for MsgraphAttachmentCreate {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph attachment created");
+        debug!("attachment created");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

@@ -18,6 +18,7 @@ use crate::{
     },
 };
 
+/// Creates a Microsoft Graph draft message from JSON.
 pub struct MsgraphMessageCreate {
     send: MsgraphSend<MsgraphMessage>,
 }
@@ -53,7 +54,7 @@ impl MsgraphCoroutine for MsgraphMessageCreate {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph message created");
+        debug!("message created");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

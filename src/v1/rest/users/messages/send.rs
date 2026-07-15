@@ -18,11 +18,13 @@ use crate::{
     },
 };
 
+/// Sends an existing Microsoft Graph draft message.
 pub struct MsgraphMessageSend {
     send: MsgraphSend<MsgraphNoResponse>,
 }
 
 impl MsgraphMessageSend {
+    /// Sends the draft message `id`.
     pub fn new(auth: &HttpAuthBearer, user_id: &str, id: &str) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph draft send");
         trace!("id: {id:?}");
@@ -41,7 +43,7 @@ impl MsgraphCoroutine for MsgraphMessageSend {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph draft sent");
+        debug!("draft sent");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

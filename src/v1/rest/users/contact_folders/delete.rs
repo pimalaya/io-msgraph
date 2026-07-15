@@ -18,11 +18,13 @@ use crate::{
     },
 };
 
+/// Deletes a Microsoft Graph contact folder.
 pub struct MsgraphContactFolderDelete {
     send: MsgraphSend<MsgraphNoResponse>,
 }
 
 impl MsgraphContactFolderDelete {
+    /// Deletes the contact folder `id`.
     pub fn new(auth: &HttpAuthBearer, user_id: &str, id: &str) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph contact folder deletion");
         trace!("id: {id:?}");
@@ -41,7 +43,7 @@ impl MsgraphCoroutine for MsgraphContactFolderDelete {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph contact folder deleted");
+        debug!("contact folder deleted");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

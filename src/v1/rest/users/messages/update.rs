@@ -18,11 +18,13 @@ use crate::{
     },
 };
 
+/// Updates a Microsoft Graph message.
 pub struct MsgraphMessageUpdate {
     send: MsgraphSend<MsgraphMessage>,
 }
 
 impl MsgraphMessageUpdate {
+    /// Patches the message `id` with the set fields of `message`.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -47,7 +49,7 @@ impl MsgraphCoroutine for MsgraphMessageUpdate {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph message updated");
+        debug!("message updated");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

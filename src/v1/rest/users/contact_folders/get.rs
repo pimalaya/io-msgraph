@@ -18,11 +18,13 @@ use crate::{
     },
 };
 
+/// Gets a Microsoft Graph contact folder.
 pub struct MsgraphContactFolderGet {
     send: MsgraphSend<MsgraphContactFolder>,
 }
 
 impl MsgraphContactFolderGet {
+    /// Gets the contact folder `id`.
     pub fn new(auth: &HttpAuthBearer, user_id: &str, id: &str) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph contact folder retrieval");
         trace!("id: {id:?}");
@@ -41,7 +43,7 @@ impl MsgraphCoroutine for MsgraphContactFolderGet {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph contact folder retrieved");
+        debug!("contact folder retrieved");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

@@ -1,3 +1,6 @@
+//! Shared test helpers: a scripted coroutine loop feeding a canned
+//! response, and HTTP response builders.
+
 #![allow(dead_code)]
 
 use io_msgraph::coroutine::*;

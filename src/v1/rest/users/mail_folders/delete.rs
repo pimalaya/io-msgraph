@@ -17,11 +17,13 @@ use crate::{
     },
 };
 
+/// Deletes a Microsoft Graph mail folder.
 pub struct MsgraphMailFolderDelete {
     send: MsgraphSend<MsgraphNoResponse>,
 }
 
 impl MsgraphMailFolderDelete {
+    /// Deletes the mail folder `id`.
     pub fn new(auth: &HttpAuthBearer, user_id: &str, id: &str) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph mail folder deletion");
         trace!("id: {id:?}");
@@ -40,7 +42,7 @@ impl MsgraphCoroutine for MsgraphMailFolderDelete {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph mail folder deleted");
+        debug!("mail folder deleted");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

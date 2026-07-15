@@ -10,23 +10,22 @@
 use core::time::Duration;
 use core::{any::Any, fmt};
 
-#[cfg(any(
-    feature = "rustls-aws",
-    feature = "rustls-ring",
-    feature = "native-tls"
-))]
-use alloc::string::ToString;
-use alloc::{boxed::Box, string::String, vec::Vec};
-
-use io_http::rfc6750::bearer::HttpAuthBearer;
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
 use std::io::{self, Read, Write};
 
+use io_http::rfc6750::bearer::HttpAuthBearer;
 #[cfg(any(
     feature = "rustls-aws",
     feature = "rustls-ring",
     feature = "native-tls"
 ))]
 use pimalaya_stream::std::stream::StreamStd;
+/// TLS backend selection re-exported from pimalaya-stream, feeding
+/// [`MsgraphClientStdConnectOptions::tls`].
 #[cfg(any(
     feature = "rustls-aws",
     feature = "rustls-ring",
@@ -59,14 +58,15 @@ use crate::{
             update::MsgraphContactFolderUpdate,
         },
         contacts::{
-            MsgraphContact, MsgraphContactsListResponse, create::MsgraphContactCreate,
-            delete::MsgraphContactDelete, get::MsgraphContactGet, list::MsgraphContactsList,
+            MsgraphContact, MsgraphContactsDeltaResponse, MsgraphContactsListResponse,
+            create::MsgraphContactCreate, delete::MsgraphContactDelete,
+            delta::MsgraphContactsDelta, get::MsgraphContactGet, list::MsgraphContactsList,
             list::MsgraphContactsListParams, update::MsgraphContactUpdate,
         },
         get::MsgraphUserGet,
         mail_folders::{
             MsgraphMailFolder, MsgraphMailFoldersListResponse,
-            child_folders::MsgraphChildFoldersList, copy::MsgraphMailFolderCopy,
+            child_folders::MsgraphMailChildFoldersList, copy::MsgraphMailFolderCopy,
             create::MsgraphMailFolderCreate, delete::MsgraphMailFolderDelete,
             get::MsgraphMailFolderGet, list::MsgraphMailFoldersList,
             list::MsgraphMailFoldersListParams, r#move::MsgraphMailFolderMove,
@@ -87,23 +87,25 @@ use crate::{
             get_raw::MsgraphMessageGetRaw,
             list::MsgraphMessagesList,
             list::MsgraphMessagesListParams,
-            move_to::MsgraphMessageMove,
+            r#move::MsgraphMessageMove,
             send::MsgraphMessageSend,
             update::MsgraphMessageUpdate,
         },
-        send_mail::{MsgraphSendMail, MsgraphSendMailMime},
+        send_mail::{MsgraphMailSend, MsgraphMailSendMime},
     },
     v1::send::{MsgraphNoResponse, MsgraphSendError, MsgraphSendOutput},
 };
 
+/// Error returned by [`MsgraphClientStd`] operations.
 #[derive(Debug, Error)]
 pub enum MsgraphClientStdError {
+    /// A coroutine completed with an error.
     #[error(transparent)]
     Send(#[from] MsgraphSendError),
-
+    /// Reading from or writing to the stream failed.
     #[error(transparent)]
     Io(#[from] io::Error),
-
+    /// Opening the TCP/TLS connection failed.
     #[cfg(any(
         feature = "rustls-aws",
         feature = "rustls-ring",
@@ -111,6 +113,7 @@ pub enum MsgraphClientStdError {
     ))]
     #[error(transparent)]
     Tls(#[from] anyhow::Error),
+    /// The API base URL has no host to connect to.
     #[cfg(any(
         feature = "rustls-aws",
         feature = "rustls-ring",
@@ -118,24 +121,34 @@ pub enum MsgraphClientStdError {
     ))]
     #[error("Microsoft Graph URL `{0}` has no host")]
     UrlMissingHost(String),
+    /// The API base URL scheme is neither http nor https.
     #[cfg(any(
         feature = "rustls-aws",
         feature = "rustls-ring",
         feature = "native-tls"
     ))]
-    #[error("Microsoft Graph URL `{0}` has unsupported scheme `{1}` (expected `http` or `https`)")]
-    UrlUnsupportedScheme(String, String),
+    #[error(
+        "Microsoft Graph URL `{url}` has unsupported scheme `{scheme}` (expected `http` or `https`)"
+    )]
+    UrlUnsupportedScheme {
+        /// The rejected API base URL.
+        url: String,
+        /// The scheme of the rejected URL.
+        scheme: String,
+    },
 }
 
 /// Optional settings for [`MsgraphClientStd::connect`]; every field has a
 /// default (the TLS backend default, and `me` as the mailbox owner).
 pub struct MsgraphClientStdConnectOptions {
+    /// The TLS backend configuration used to open the connection.
     #[cfg(any(
         feature = "rustls-aws",
         feature = "rustls-ring",
         feature = "native-tls"
     ))]
     pub tls: Tls,
+    /// The mailbox owner: `me`, a user id or a principal name.
     pub user_id: String,
 }
 
@@ -155,13 +168,19 @@ impl Default for MsgraphClientStdConnectOptions {
 
 const READ_BUFFER_SIZE: usize = 16 * 1024;
 
+/// Std blocking Microsoft Graph client: a stream, the bearer
+/// credential and the mailbox owner, with one method per operation.
 pub struct MsgraphClientStd {
+    /// The stream carrying the HTTPS connection to the Graph API.
     pub stream: Box<dyn MsgraphStream>,
+    /// The bearer credential added to every request.
     pub auth: HttpAuthBearer,
+    /// The mailbox owner: `me`, a user id or a principal name.
     pub user_id: String,
 }
 
 impl MsgraphClientStd {
+    /// Builds a client over a caller-managed stream.
     pub fn new<S: Read + Write + Send + 'static>(
         stream: S,
         token: impl ToString,
@@ -174,6 +193,8 @@ impl MsgraphClientStd {
         }
     }
 
+    /// Builds a client by opening a TCP/TLS connection to the Graph
+    /// API endpoint through pimalaya-stream.
     #[cfg(any(
         feature = "rustls-aws",
         feature = "rustls-ring",
@@ -194,10 +215,10 @@ impl MsgraphClientStd {
             "http" => StreamStd::connect_tcp(host, url.port().unwrap_or(80))?,
             "https" => StreamStd::connect_tls(host, url.port().unwrap_or(443), &tls)?,
             scheme => {
-                return Err(MsgraphClientStdError::UrlUnsupportedScheme(
-                    url.to_string(),
-                    scheme.to_string(),
-                ));
+                return Err(MsgraphClientStdError::UrlUnsupportedScheme {
+                    url: url.to_string(),
+                    scheme: scheme.to_string(),
+                });
             }
         };
 
@@ -210,10 +231,13 @@ impl MsgraphClientStd {
         })
     }
 
+    /// Replaces the underlying stream (e.g. after a connection reset).
     pub fn set_stream<S: Read + Write + Send + 'static>(&mut self, stream: S) {
         self.stream = Box::new(stream);
     }
 
+    /// Runs the given coroutine to completion against the stream,
+    /// fulfilling its read and write requests.
     pub fn run<C, T>(
         &mut self,
         mut coroutine: C,
@@ -243,11 +267,13 @@ impl MsgraphClientStd {
         }
     }
 
+    /// Gets the profile of the mailbox owner.
     pub fn me(&mut self) -> Result<MsgraphSendOutput<MsgraphUser>, MsgraphClientStdError> {
         let coroutine = MsgraphUserGet::new(&self.auth, &self.user_id)?;
         self.run(coroutine)
     }
 
+    /// Lists the mail folders of the mailbox.
     pub fn mail_folders_list(
         &mut self,
         params: &MsgraphMailFoldersListParams,
@@ -256,6 +282,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Gets a mail folder by id.
     pub fn mail_folder_get(
         &mut self,
         id: &str,
@@ -264,6 +291,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Creates a mail folder.
     pub fn mail_folder_create(
         &mut self,
         folder: &MsgraphMailFolder,
@@ -272,6 +300,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Updates a mail folder by id.
     pub fn mail_folder_update(
         &mut self,
         id: &str,
@@ -281,6 +310,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Deletes a mail folder by id.
     pub fn mail_folder_delete(
         &mut self,
         id: &str,
@@ -289,6 +319,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Copies a mail folder into a destination folder.
     pub fn mail_folder_copy(
         &mut self,
         id: &str,
@@ -298,6 +329,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Moves a mail folder into a destination folder.
     pub fn mail_folder_move(
         &mut self,
         id: &str,
@@ -307,15 +339,17 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
-    pub fn child_folders_list(
+    /// Lists the child folders of a mail folder.
+    pub fn mail_child_folders_list(
         &mut self,
         id: &str,
         params: &MsgraphMailFoldersListParams,
     ) -> Result<MsgraphSendOutput<MsgraphMailFoldersListResponse>, MsgraphClientStdError> {
-        let coroutine = MsgraphChildFoldersList::new(&self.auth, &self.user_id, id, params)?;
+        let coroutine = MsgraphMailChildFoldersList::new(&self.auth, &self.user_id, id, params)?;
         self.run(coroutine)
     }
 
+    /// Lists the contact folders of the mailbox.
     pub fn contact_folders_list(
         &mut self,
         params: &MsgraphContactFoldersListParams,
@@ -324,6 +358,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Gets a contact folder by id.
     pub fn contact_folder_get(
         &mut self,
         id: &str,
@@ -332,6 +367,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Creates a contact folder.
     pub fn contact_folder_create(
         &mut self,
         folder: &MsgraphContactFolder,
@@ -340,6 +376,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Updates a contact folder by id.
     pub fn contact_folder_update(
         &mut self,
         id: &str,
@@ -349,6 +386,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Deletes a contact folder by id.
     pub fn contact_folder_delete(
         &mut self,
         id: &str,
@@ -357,6 +395,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Lists the child folders of a contact folder.
     pub fn contact_child_folders_list(
         &mut self,
         id: &str,
@@ -366,6 +405,8 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Lists the contacts of the default Contacts folder, or of the
+    /// given contact folder.
     pub fn contacts_list(
         &mut self,
         folder: Option<&str>,
@@ -375,6 +416,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Gets a contact by id, optionally expanding the given relations.
     pub fn contact_get(
         &mut self,
         id: &str,
@@ -384,6 +426,8 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Creates a contact in the default Contacts folder, or in the
+    /// given contact folder.
     pub fn contact_create(
         &mut self,
         folder: Option<&str>,
@@ -393,6 +437,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Updates a contact by id.
     pub fn contact_update(
         &mut self,
         id: &str,
@@ -402,6 +447,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Deletes a contact by id.
     pub fn contact_delete(
         &mut self,
         id: &str,
@@ -410,6 +456,19 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Starts a contacts delta round over the default Contacts folder,
+    /// or over the given contact folder.
+    pub fn contacts_delta(
+        &mut self,
+        folder: Option<&str>,
+        select: Option<&str>,
+    ) -> Result<MsgraphSendOutput<MsgraphContactsDeltaResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactsDelta::new(&self.auth, &self.user_id, folder, select)?;
+        self.run(coroutine)
+    }
+
+    /// Lists the messages of the whole mailbox, or of the given mail
+    /// folder.
     pub fn messages_list(
         &mut self,
         folder: Option<&str>,
@@ -419,6 +478,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Gets a message by id.
     pub fn message_get(
         &mut self,
         id: &str,
@@ -427,6 +487,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Gets the raw RFC 5322 MIME content of a message by id.
     pub fn message_get_raw(
         &mut self,
         id: &str,
@@ -435,6 +496,8 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Creates a draft message from JSON in the Drafts folder, or in
+    /// the given mail folder.
     pub fn message_create(
         &mut self,
         folder: Option<&str>,
@@ -444,6 +507,8 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Creates a draft message from raw RFC 5322 MIME bytes in the
+    /// Drafts folder, or in the given mail folder.
     pub fn message_create_mime(
         &mut self,
         folder: Option<&str>,
@@ -453,6 +518,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Updates a message by id.
     pub fn message_update(
         &mut self,
         id: &str,
@@ -462,6 +528,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Deletes a message by id.
     pub fn message_delete(
         &mut self,
         id: &str,
@@ -470,6 +537,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Moves a message into a destination folder.
     pub fn message_move(
         &mut self,
         id: &str,
@@ -479,6 +547,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Copies a message into a destination folder.
     pub fn message_copy(
         &mut self,
         id: &str,
@@ -488,6 +557,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Creates a file attachment on a message.
     pub fn attachment_create(
         &mut self,
         message_id: &str,
@@ -506,6 +576,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Lists the attachments of a message.
     pub fn attachments_list(
         &mut self,
         message_id: &str,
@@ -514,6 +585,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Gets the raw content of an attachment.
     pub fn attachment_get_raw(
         &mut self,
         message_id: &str,
@@ -524,6 +596,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Deletes an attachment of a message.
     pub fn attachment_delete(
         &mut self,
         message_id: &str,
@@ -534,6 +607,7 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Sends an existing draft message by id.
     pub fn message_send(
         &mut self,
         id: &str,
@@ -542,21 +616,24 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
-    pub fn send_mail(
+    /// Sends a message described as JSON through the sendMail action.
+    pub fn mail_send(
         &mut self,
         message: &MsgraphMessage,
         save_to_sent_items: bool,
     ) -> Result<MsgraphSendOutput<MsgraphNoResponse>, MsgraphClientStdError> {
         let coroutine =
-            MsgraphSendMail::new(&self.auth, &self.user_id, message, save_to_sent_items)?;
+            MsgraphMailSend::new(&self.auth, &self.user_id, message, save_to_sent_items)?;
         self.run(coroutine)
     }
 
-    pub fn send_mail_mime(
+    /// Sends a message given as raw RFC 5322 MIME bytes through the
+    /// sendMail action.
+    pub fn mail_send_mime(
         &mut self,
         raw: &[u8],
     ) -> Result<MsgraphSendOutput<MsgraphNoResponse>, MsgraphClientStdError> {
-        let coroutine = MsgraphSendMailMime::new(&self.auth, &self.user_id, raw)?;
+        let coroutine = MsgraphMailSendMime::new(&self.auth, &self.user_id, raw)?;
         self.run(coroutine)
     }
 }
@@ -570,7 +647,10 @@ impl fmt::Debug for MsgraphClientStd {
     }
 }
 
+/// Blocking stream the client runs over, downcastable through `Any`
+/// (e.g. to recover a concrete TLS stream).
 pub trait MsgraphStream: Read + Write + Send + Any {
+    /// The stream as a mutable `Any`, ready for downcasting.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 

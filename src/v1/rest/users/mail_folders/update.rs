@@ -18,11 +18,13 @@ use crate::{
     },
 };
 
+/// Updates a Microsoft Graph mail folder.
 pub struct MsgraphMailFolderUpdate {
     send: MsgraphSend<MsgraphMailFolder>,
 }
 
 impl MsgraphMailFolderUpdate {
+    /// Patches the mail folder `id` with the set fields of `folder`.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -47,7 +49,7 @@ impl MsgraphCoroutine for MsgraphMailFolderUpdate {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph mail folder updated");
+        debug!("mail folder updated");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

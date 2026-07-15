@@ -27,6 +27,8 @@ pub struct MsgraphContactChildFoldersList {
 }
 
 impl MsgraphContactChildFoldersList {
+    /// Lists the child folders of the contact folder `id`, filtered by
+    /// the OData `params`.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -54,7 +56,7 @@ impl MsgraphCoroutine for MsgraphContactChildFoldersList {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph contact child folders listed");
+        debug!("contact child folders listed");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

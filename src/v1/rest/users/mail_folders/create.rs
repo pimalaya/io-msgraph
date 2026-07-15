@@ -17,11 +17,13 @@ use crate::{
     },
 };
 
+/// Creates a Microsoft Graph mail folder.
 pub struct MsgraphMailFolderCreate {
     send: MsgraphSend<MsgraphMailFolder>,
 }
 
 impl MsgraphMailFolderCreate {
+    /// Creates `folder`, whose `display_name` must not be empty.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -49,7 +51,7 @@ impl MsgraphCoroutine for MsgraphMailFolderCreate {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph mail folder created");
+        debug!("mail folder created");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

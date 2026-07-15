@@ -17,14 +17,18 @@ use crate::{
     },
 };
 
+/// Gets a Microsoft Graph contact.
 pub struct MsgraphContactGet {
     send: MsgraphSend<MsgraphContact>,
 }
 
 impl MsgraphContactGet {
     /// Gets the contact `id`, `$expand`ing the given navigation clause
-    /// when one is passed (e.g. a filtered extended-property expansion;
-    /// Graph omits extended properties from responses otherwise).
+    /// when one is passed.
+    ///
+    /// Graph omits extended properties from responses unless the
+    /// request expands them (e.g. a filtered extended-property
+    /// expansion).
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -54,7 +58,7 @@ impl MsgraphCoroutine for MsgraphContactGet {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph contact retrieved");
+        debug!("contact retrieved");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

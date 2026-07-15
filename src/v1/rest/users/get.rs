@@ -15,11 +15,14 @@ use crate::{
     },
 };
 
+/// Gets a Microsoft Graph user profile.
 pub struct MsgraphUserGet {
     send: MsgraphSend<MsgraphUser>,
 }
 
 impl MsgraphUserGet {
+    /// Gets the profile of `user_id` (`me`, a user id or a principal
+    /// name).
     pub fn new(auth: &HttpAuthBearer, user_id: &str) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph user retrieval");
         trace!("user_id: {user_id:?}");
@@ -37,7 +40,7 @@ impl MsgraphCoroutine for MsgraphUserGet {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph user retrieved");
+        debug!("user retrieved");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

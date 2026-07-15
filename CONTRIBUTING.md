@@ -1,47 +1,20 @@
 # Contributing guide
 
-Thank you for investing your time in contributing to the I/O Microsoft Graph project.
+Thank you for investing your time in contributing to I/O Microsoft Graph.
 
-## Development
+Whether you are a human or an AI agent, read these in order before touching the code:
 
-The development environment is managed by [Nix](https://nixos.org/download.html).
-Running `nix-shell` will spawn a shell with everything you need to get started with the lib.
+1. the [Pimalaya README](https://github.com/pimalaya) for what the project is and how its repositories stack;
+2. the [Pimalaya CONTRIBUTING](https://github.com/pimalaya/.github/blob/master/CONTRIBUTING.md) guide, which chains to the shared architecture and guidelines;
+3. the inline header documentation, starting with src/lib.rs: it is the architecture document of this crate;
+4. the docs/ folder for the development history and living plans.
 
-If you do not want to use Nix, you can either use [rustup](https://rust-lang.github.io/rustup/index.html):
+Everything below documents only what differs from the Pimalaya standards.
 
-```sh
-rustup update
-```
+## End-to-end tests
 
-or install manually the following dependencies:
-
-- [cargo](https://doc.rust-lang.org/cargo/)
-- [rustc](https://doc.rust-lang.org/stable/rustc/platform-support.html) (`>= 1.87`)
-
-## Build
+Besides the offline suite (every coroutine runs against scripted in-memory HTTP responses, no network nor OAuth token required), two ignored end-to-end tests run the full client against the live Microsoft Graph API: one for the mail surface, one for the contacts surface. They need an OAuth 2.0 access token with mail read, write and send scopes plus Contacts.ReadWrite in the environment; MSGRAPH_USER_ID is optional and defaults to the signed-in user:
 
 ```sh
-cargo build
+MSGRAPH_ACCESS_TOKEN="<token>" cargo test --test msgraph -- --include-ignored
 ```
-
-## Test
-
-```sh
-cargo test
-```
-
-The test suite is fully offline: each coroutine is driven against a scripted stub stream that replays a canned HTTP response, so no real network access or OAuth token is required.
-
-## Override dependencies
-
-All Pimalaya crates use `[patch.crates-io]` to point to sibling directories.
-If you want to build io-msgraph against a locally modified dependency (e.g. `io-http`), add the following to `Cargo.toml`:
-
-```toml
-[patch.crates-io]
-io-http.path = "/path/to/io-http"
-```
-
-## Commit style
-
-I/O Microsoft Graph follows the [conventional commits specification](https://www.conventionalcommits.org/en/v1.0.0/#summary).

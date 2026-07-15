@@ -21,6 +21,7 @@ use crate::{
     },
 };
 
+/// Creates a Microsoft Graph draft message from raw RFC 5322 MIME.
 pub struct MsgraphMessageCreateMime {
     send: MsgraphSend<MsgraphMessage>,
 }
@@ -57,7 +58,7 @@ impl MsgraphCoroutine for MsgraphMessageCreateMime {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph message created (mime)");
+        debug!("message created (mime)");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

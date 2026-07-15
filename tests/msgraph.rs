@@ -55,7 +55,7 @@ fn msgraph() {
         .as_millis();
     let folder_name = format!("io-msgraph-test-{ts}");
 
-    // ── ME ───────────────────────────────────────────────────────────────────
+    // NOTE: ── me ──
 
     let me = client.me().expect("me").response;
     let address = me
@@ -65,7 +65,7 @@ fn msgraph() {
         .expect("user must expose an email address");
     assert!(!address.is_empty());
 
-    // ── MAIL FOLDERS LIST (baseline) ─────────────────────────────────────────
+    // NOTE: ── mail folders list (baseline) ──
 
     let folders = client
         .mail_folders_list(&Default::default())
@@ -76,7 +76,7 @@ fn msgraph() {
         "mailbox should expose at least one mail folder"
     );
 
-    // ── MAIL FOLDER CREATE ───────────────────────────────────────────────────
+    // NOTE: ── mail folder create ──
 
     let new_folder = MsgraphMailFolder {
         display_name: folder_name.clone(),
@@ -89,7 +89,7 @@ fn msgraph() {
     let folder_id = folder.id.clone();
     assert_eq!(folder.display_name, folder_name);
 
-    // ── MAIL FOLDER GET (verify creation) ────────────────────────────────────
+    // NOTE: ── mail folder get (verify creation) ──
 
     let fetched = client
         .mail_folder_get(&folder_id)
@@ -97,7 +97,7 @@ fn msgraph() {
         .response;
     assert_eq!(fetched.display_name, folder_name);
 
-    // ── MESSAGE CREATE (draft in the new folder) ─────────────────────────────
+    // NOTE: ── message create (draft in the new folder) ──
 
     let subject = format!("io-msgraph test {ts}");
     let draft = MsgraphMessage {
@@ -121,7 +121,7 @@ fn msgraph() {
     let message_id = message.id.clone();
     assert_eq!(message.subject.as_deref(), Some(subject.as_str()));
 
-    // ── MESSAGE GET ──────────────────────────────────────────────────────────
+    // NOTE: ── message get ──
 
     let fetched = client
         .message_get(&message_id)
@@ -129,7 +129,7 @@ fn msgraph() {
         .response;
     assert_eq!(fetched.subject.as_deref(), Some(subject.as_str()));
 
-    // ── MESSAGE GET RAW (MIME) ───────────────────────────────────────────────
+    // NOTE: ── message get raw (mime) ──
 
     let raw = client
         .message_get_raw(&message_id)
@@ -137,7 +137,7 @@ fn msgraph() {
         .response;
     assert!(!raw.is_empty(), "raw MIME should not be empty");
 
-    // ── MESSAGE UPDATE (mark read) ───────────────────────────────────────────
+    // NOTE: ── message update (mark read) ──
 
     let patch = MsgraphMessage {
         is_read: Some(true),
@@ -149,7 +149,7 @@ fn msgraph() {
         .response;
     assert_eq!(updated.is_read, Some(true));
 
-    // ── MESSAGES LIST (in the new folder) ────────────────────────────────────
+    // NOTE: ── messages list (in the new folder) ──
 
     let params = MsgraphMessagesListParams {
         top: Some(10),
@@ -164,7 +164,7 @@ fn msgraph() {
         "listing should contain the created message"
     );
 
-    // ── MESSAGE COPY then MOVE ───────────────────────────────────────────────
+    // NOTE: ── message copy then move ──
 
     let copy = client
         .message_copy(&message_id, "drafts")
@@ -175,25 +175,25 @@ fn msgraph() {
         .expect("message move")
         .response;
 
-    // ── MESSAGE DELETE (original + the moved copy) ────────────────────────────
+    // NOTE: ── message delete (original + the moved copy) ──
 
     client.message_delete(&message_id).expect("message delete");
     client.message_delete(&moved.id).expect("moved copy delete");
 
-    // ── MAIL FOLDER DELETE (cleanup) ─────────────────────────────────────────
+    // NOTE: ── mail folder delete (cleanup) ──
 
     client
         .mail_folder_delete(&folder_id)
         .expect("mail folder delete");
 
-    // ── SEND MAIL (MIME, to self) ────────────────────────────────────────────
+    // NOTE: ── send mail (mime, to self) ──
 
     let mime = format!(
         "To: {address}\r\nSubject: io-msgraph send test {ts}\r\n\r\nsent by the io-msgraph test suite\r\n"
     );
     client
-        .send_mail_mime(mime.as_bytes())
-        .expect("send mail mime");
+        .mail_send_mime(mime.as_bytes())
+        .expect("mail send mime");
 }
 
 #[test]
@@ -216,13 +216,13 @@ fn msgraph_contacts() {
         .as_millis();
     let folder_name = format!("io-msgraph-test-{ts}");
 
-    // ── CONTACT FOLDERS LIST (baseline) ──────────────────────────────────────
+    // NOTE: ── contact folders list (baseline) ──
 
     client
         .contact_folders_list(&Default::default())
         .expect("contact folders list");
 
-    // ── CONTACT FOLDER CREATE ────────────────────────────────────────────────
+    // NOTE: ── contact folder create ──
 
     let new_folder = MsgraphContactFolder {
         display_name: folder_name.clone(),
@@ -235,7 +235,7 @@ fn msgraph_contacts() {
     let folder_id = folder.id.clone();
     assert_eq!(folder.display_name, folder_name);
 
-    // ── CONTACT FOLDER GET (verify creation) ─────────────────────────────────
+    // NOTE: ── contact folder get (verify creation) ──
 
     let fetched = client
         .contact_folder_get(&folder_id)
@@ -243,7 +243,7 @@ fn msgraph_contacts() {
         .response;
     assert_eq!(fetched.display_name, folder_name);
 
-    // ── CONTACT FOLDER UPDATE (rename) ───────────────────────────────────────
+    // NOTE: ── contact folder update (rename) ──
 
     let renamed_folder_name = format!("{folder_name}-renamed");
     let folder_patch = MsgraphContactFolder {
@@ -256,7 +256,7 @@ fn msgraph_contacts() {
         .response;
     assert_eq!(renamed.display_name, renamed_folder_name);
 
-    // ── CONTACT CHILD FOLDERS LIST (empty on a fresh folder) ─────────────────
+    // NOTE: ── contact child folders list (empty on a fresh folder) ──
 
     let children = client
         .contact_child_folders_list(&folder_id, &Default::default())
@@ -267,7 +267,7 @@ fn msgraph_contacts() {
         "fresh contact folder should have no child folders"
     );
 
-    // ── CONTACT CREATE (in the new folder) ───────────────────────────────────
+    // NOTE: ── contact create (in the new folder) ──
 
     let given_name = format!("io-msgraph-{ts}");
     let new_contact = MsgraphContact {
@@ -287,7 +287,7 @@ fn msgraph_contacts() {
     let contact_id = contact.id.clone();
     assert_eq!(contact.given_name.as_deref(), Some(given_name.as_str()));
 
-    // ── CONTACT GET ──────────────────────────────────────────────────────────
+    // NOTE: ── contact get ──
 
     let fetched = client
         .contact_get(&contact_id, None)
@@ -303,7 +303,7 @@ fn msgraph_contacts() {
         Some("io-msgraph-test@example.com")
     );
 
-    // ── CONTACT UPDATE (rename) ──────────────────────────────────────────────
+    // NOTE: ── contact update (rename) ──
 
     let patch = MsgraphContact {
         surname: MsgraphField::Set(String::from("Renamed")),
@@ -315,7 +315,7 @@ fn msgraph_contacts() {
         .response;
     assert_eq!(updated.surname.as_deref(), Some("Renamed"));
 
-    // ── CONTACTS LIST (in the new folder) ────────────────────────────────────
+    // NOTE: ── contacts list (in the new folder) ──
 
     let params = MsgraphContactsListParams {
         top: Some(10),
@@ -330,11 +330,11 @@ fn msgraph_contacts() {
         "listing should contain the created contact"
     );
 
-    // ── CONTACT DELETE ───────────────────────────────────────────────────────
+    // NOTE: ── contact delete ──
 
     client.contact_delete(&contact_id).expect("contact delete");
 
-    // ── CONTACT CREATE then DELETE (default Contacts folder) ─────────────────
+    // NOTE: ── contact create then delete (default contacts folder) ──
 
     let default_contact = MsgraphContact {
         given_name: MsgraphField::Set(given_name.clone()),
@@ -356,7 +356,7 @@ fn msgraph_contacts() {
         .contact_delete(&contact.id)
         .expect("default contact delete");
 
-    // ── CONTACT FOLDER DELETE (cleanup) ──────────────────────────────────────
+    // NOTE: ── contact folder delete (cleanup) ──
 
     client
         .contact_folder_delete(&folder_id)

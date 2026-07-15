@@ -17,11 +17,14 @@ use crate::{
     },
 };
 
+/// Updates a Microsoft Graph contact.
 pub struct MsgraphContactUpdate {
     send: MsgraphSend<MsgraphContact>,
 }
 
 impl MsgraphContactUpdate {
+    /// Patches the contact `id` with the set and null fields of
+    /// `contact`.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -46,7 +49,7 @@ impl MsgraphCoroutine for MsgraphContactUpdate {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph contact updated");
+        debug!("contact updated");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

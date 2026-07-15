@@ -18,6 +18,7 @@ use crate::{
     },
 };
 
+/// Creates a Microsoft Graph contact.
 pub struct MsgraphContactCreate {
     send: MsgraphSend<MsgraphContact>,
 }
@@ -53,7 +54,7 @@ impl MsgraphCoroutine for MsgraphContactCreate {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph contact created");
+        debug!("contact created");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

@@ -26,6 +26,7 @@ struct MsgraphMessageMoveRequest<'a> {
     destination_id: &'a str,
 }
 
+/// Moves a Microsoft Graph message into another folder.
 pub struct MsgraphMessageMove {
     send: MsgraphSend<MsgraphMessage>,
 }
@@ -60,7 +61,7 @@ impl MsgraphCoroutine for MsgraphMessageMove {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph message moved");
+        debug!("message moved");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

@@ -16,6 +16,6 @@ pub mod delete;
 pub mod get;
 pub mod get_raw;
 pub mod list;
-pub mod move_to;
+pub mod r#move;
 pub mod send;
 pub mod update;

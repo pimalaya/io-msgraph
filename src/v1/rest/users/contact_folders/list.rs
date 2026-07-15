@@ -23,19 +23,25 @@ use crate::{
 /// OData query parameters for listing contact folders.
 #[derive(Debug, Clone, Default, Serialize, Eq, PartialEq)]
 pub struct MsgraphContactFoldersListParams<'a> {
+    /// Maximum number of folders per page (`$top`).
     #[serde(rename = "$top")]
     pub top: Option<u32>,
+    /// Number of folders to skip (`$skip`).
     #[serde(rename = "$skip")]
     pub skip: Option<u32>,
+    /// Comma-separated properties to return (`$select`).
     #[serde(rename = "$select")]
     pub select: Option<&'a str>,
 }
 
+/// Lists the Microsoft Graph contact folders of a mailbox.
 pub struct MsgraphContactFoldersList {
     send: MsgraphSend<MsgraphContactFoldersListResponse>,
 }
 
 impl MsgraphContactFoldersList {
+    /// Lists the top-level contact folders, filtered by the OData
+    /// `params`.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -60,7 +66,7 @@ impl MsgraphCoroutine for MsgraphContactFoldersList {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph contact folders listed");
+        debug!("contact folders listed");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

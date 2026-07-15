@@ -2,7 +2,7 @@
 //! (`GET /me/messages/{id}/$value`).
 //!
 //! Unlike the other coroutines, the `$value` endpoint returns the raw
-//! RFC 5322 message rather than JSON, so this drives the HTTP send
+//! RFC 5322 message rather than JSON, so this runs the HTTP send
 //! directly and yields the body bytes.
 //!
 //! <https://learn.microsoft.com/en-us/graph/outlook-get-mime-message>
@@ -26,21 +26,21 @@ use crate::{
     v1::send::{MSGRAPH_API_BASE, MsgraphSendError, MsgraphSendOutput, parse_api_error, user_path},
 };
 
+/// Gets the raw RFC 5322 MIME content of a Microsoft Graph message.
 pub struct MsgraphMessageGetRaw {
     send: Http11Send,
 }
 
 impl MsgraphMessageGetRaw {
+    /// Gets the raw MIME content of the message `id`.
     pub fn new(auth: &HttpAuthBearer, user_id: &str, id: &str) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph message raw retrieval");
         trace!("id: {id:?}");
 
         let user = user_path(user_id);
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/messages/{id}/$value"))?;
-        let host = url.host_str().unwrap_or("localhost");
 
         let request = HttpRequest::get(url.clone())
-            .header("Host", host)
             .header("Authorization", auth.to_authorization())
             .body(Vec::new());
 
@@ -74,7 +74,7 @@ impl MsgraphCoroutine for MsgraphMessageGetRaw {
                 ..
             })) => {
                 if response.status.is_success() {
-                    debug!("microsoft graph message raw retrieved");
+                    debug!("message raw retrieved");
                     MsgraphCoroutineState::Complete(Ok(MsgraphSendOutput {
                         response: response.body,
                         keep_alive,

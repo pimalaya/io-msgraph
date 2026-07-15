@@ -61,7 +61,7 @@ impl MsgraphCoroutine for MsgraphMailFolderMove {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph mail folder moved");
+        debug!("mail folder moved");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

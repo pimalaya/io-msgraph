@@ -1,3 +1,7 @@
+//! In-memory coroutine tests: each coroutine runs against a scripted
+//! HTTP response (no network), checking the request it writes and the
+//! value it returns.
+
 mod common;
 
 use common::{empty_response, json_response, run, text_response};
@@ -31,10 +35,10 @@ use io_msgraph::v1::{
             get_raw::MsgraphMessageGetRaw,
             list::MsgraphMessagesList,
             list::MsgraphMessagesListParams,
-            move_to::MsgraphMessageMove,
+            r#move::MsgraphMessageMove,
             update::MsgraphMessageUpdate,
         },
-        send_mail::MsgraphSendMailMime,
+        send_mail::MsgraphMailSendMime,
     },
     send::{MsgraphSendError, parse_api_error},
 };
@@ -146,7 +150,7 @@ fn messages_list_builds_odata_query() {
     assert!(request.contains("%24top=2"));
     assert!(request.contains("%24select=id%2Csubject%2CisRead"));
     assert!(request.contains("%24orderby=receivedDateTime+desc"));
-    // unset params do not appear
+    // NOTE: unset params do not appear
     assert!(!request.contains("%24skip"));
     assert!(!request.contains("%24filter"));
 }
@@ -206,14 +210,14 @@ fn message_get_raw_returns_mime_bytes() {
 fn send_mail_mime_base64_encodes_body() {
     let mime = b"From: a@b.c\r\nSubject: hi\r\n\r\nbody";
 
-    let mut coroutine = MsgraphSendMailMime::new(&auth(), "me", mime).unwrap();
+    let mut coroutine = MsgraphMailSendMime::new(&auth(), "me", mime).unwrap();
     let (result, written) = run(&mut coroutine, &empty_response("HTTP/1.1 202 Accepted"));
     assert!(result.is_ok());
 
     let request = String::from_utf8_lossy(&written);
     assert!(request.contains("POST /v1.0/me/sendMail"));
     assert!(request.contains("Content-Type: text/plain"));
-    // base64 (standard) of the MIME, as Graph requires
+    // NOTE: base64 (standard) of the MIME, as Graph requires
     let expected = "RnJvbTogYUBiLmMNClN1YmplY3Q6IGhpDQoNCmJvZHk=";
     assert!(request.contains(expected));
 }
@@ -444,7 +448,7 @@ fn contacts_list_builds_odata_query() {
     assert!(request.contains("%24top=5"));
     assert!(request.contains("%24select=id%2CdisplayName%2CemailAddresses"));
     assert!(request.contains("%24orderby=displayName"));
-    // unset params do not appear
+    // NOTE: unset params do not appear
     assert!(!request.contains("%24skip"));
     assert!(!request.contains("%24filter"));
 }
@@ -481,7 +485,7 @@ fn creates_contact_posts_email_addresses() {
         ),
         "got: {request}"
     );
-    // unset fields do not appear in the JSON body
+    // NOTE: unset fields do not appear in the JSON body
     assert!(!request.contains("\"surname\""), "got: {request}");
 }
 

@@ -22,21 +22,28 @@ use crate::{
 /// OData query parameters for listing mail folders.
 #[derive(Debug, Clone, Default, Serialize, Eq, PartialEq)]
 pub struct MsgraphMailFoldersListParams<'a> {
+    /// Maximum number of folders per page (`$top`).
     #[serde(rename = "$top")]
     pub top: Option<u32>,
+    /// Number of folders to skip (`$skip`).
     #[serde(rename = "$skip")]
     pub skip: Option<u32>,
+    /// Comma-separated properties to return (`$select`).
     #[serde(rename = "$select")]
     pub select: Option<&'a str>,
+    /// Whether hidden folders are included in the listing.
     #[serde(rename = "includeHiddenFolders")]
     pub include_hidden_folders: Option<bool>,
 }
 
+/// Lists the Microsoft Graph mail folders of a mailbox.
 pub struct MsgraphMailFoldersList {
     send: MsgraphSend<MsgraphMailFoldersListResponse>,
 }
 
 impl MsgraphMailFoldersList {
+    /// Lists the top-level mail folders, filtered by the OData
+    /// `params`.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -61,7 +68,7 @@ impl MsgraphCoroutine for MsgraphMailFoldersList {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph mail folders listed");
+        debug!("mail folders listed");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }

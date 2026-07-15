@@ -19,11 +19,14 @@ use crate::{
     },
 };
 
+/// Updates a Microsoft Graph contact folder.
 pub struct MsgraphContactFolderUpdate {
     send: MsgraphSend<MsgraphContactFolder>,
 }
 
 impl MsgraphContactFolderUpdate {
+    /// Patches the contact folder `id` with the set fields of
+    /// `folder`.
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -48,7 +51,7 @@ impl MsgraphCoroutine for MsgraphContactFolderUpdate {
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
         let out = msgraph_try!(&mut self.send, arg);
-        debug!("microsoft graph contact folder updated");
+        debug!("contact folder updated");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
     }
