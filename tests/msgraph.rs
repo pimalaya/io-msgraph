@@ -22,8 +22,8 @@ use std::{
 };
 
 use io_msgraph::v1::{
-    MsgraphField,
     client::{MsgraphClientStd, MsgraphClientStdConnectOptions},
+    field::MsgraphField,
     rest::users::{
         contact_folders::MsgraphContactFolder,
         contacts::{MsgraphContact, list::MsgraphContactsListParams},

@@ -3,11 +3,11 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/user-list-messages>
 
-use alloc::format;
+use alloc::{format, string::String, vec::Vec};
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::{
@@ -15,10 +15,21 @@ use crate::{
     msgraph_try,
     v1::{
         query::to_query_pairs,
-        rest::users::messages::MsgraphMessagesListResponse,
+        rest::users::messages::MsgraphMessage,
         send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
     },
 };
+
+/// One page of messages (`value` plus the OData paging link).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct MsgraphMessagesListResponse {
+    /// The messages of the page.
+    #[serde(default)]
+    pub value: Vec<MsgraphMessage>,
+    /// The URL of the next page, when one exists.
+    #[serde(default, rename = "@odata.nextLink")]
+    pub next_link: Option<String>,
+}
 
 /// OData query parameters for listing messages.
 #[derive(Debug, Clone, Default, Serialize, Eq, PartialEq)]

@@ -1,13 +1,17 @@
-//! Microsoft Graph attachment resource.
-//!
-//! The attachment of a message, with its metadata and optional inline
-//! content.
+//! Microsoft Graph message attachments
+//! (`users.messages.attachments`): create, list, get raw content,
+//! delete.
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/resources/attachment>
 
 use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
+
+pub mod create;
+pub mod delete;
+pub mod get_raw;
+pub mod list;
 
 /// A message attachment.
 ///

@@ -1,13 +1,20 @@
-//! Microsoft Graph mail folder resource.
-//!
-//! A folder in a user's mailbox, carrying its counters and hierarchy
-//! links.
+//! Microsoft Graph mail folders (`users.mailFolders`): list, get,
+//! create, update, delete, copy, move, list child folders.
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/resources/mailfolder>
 
 use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
+
+pub mod child_folders;
+pub mod copy;
+pub mod create;
+pub mod delete;
+pub mod get;
+pub mod list;
+pub mod r#move;
+pub mod update;
 
 /// A mail folder in a user's mailbox. Doubles as the create body, where
 /// only `display_name` (and optionally `is_hidden`) is serialized.

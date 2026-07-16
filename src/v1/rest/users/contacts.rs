@@ -1,7 +1,5 @@
-//! Microsoft Graph contact resource.
-//!
-//! The contact of a contact folder, with its names, addresses, phones
-//! and extended properties.
+//! Microsoft Graph contacts (`users.contacts`): list, delta, get,
+//! create, update, delete.
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/resources/contact>
 
@@ -9,16 +7,14 @@ use alloc::{string::String, vec::Vec};
 
 use serde::{Deserialize, Serialize};
 
-use crate::v1::{
-    rest::users::{
-        contacts::types::{
-            physical_address::MsgraphPhysicalAddress,
-            single_value_extended_property::MsgraphSingleValueExtendedProperty,
-        },
-        messages::MsgraphEmailAddress,
-    },
-    types::MsgraphField,
-};
+use crate::v1::{field::MsgraphField, rest::users::messages::MsgraphEmailAddress};
+
+pub mod create;
+pub mod delete;
+pub mod delta;
+pub mod get;
+pub mod list;
+pub mod update;
 
 /// A contact in a contact folder. Doubles as the create/update body.
 ///
@@ -133,4 +129,43 @@ pub struct MsgraphContact {
     /// only carry them when the request `$expand`ed them by id.
     #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
     pub single_value_extended_properties: MsgraphField<Vec<MsgraphSingleValueExtendedProperty>>,
+}
+
+/// A physical address of a contact (home, business or other).
+///
+/// The whole object is replaced at once, so its components stay plain
+/// options.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MsgraphPhysicalAddress {
+    /// The street name and number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub street: Option<String>,
+    /// The city.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    /// The state or province.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    /// The country or region.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country_or_region: Option<String>,
+    /// The postal code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub postal_code: Option<String>,
+}
+
+/// A single-value extended MAPI property: the full property id (the
+/// `String {guid} Name <name>` form) and its value.
+///
+/// <https://learn.microsoft.com/en-us/graph/api/resources/singlevaluelegacyextendedproperty>
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MsgraphSingleValueExtendedProperty {
+    /// The full property identifier.
+    #[serde(default)]
+    pub id: String,
+    /// The value of the property.
+    #[serde(default)]
+    pub value: String,
 }

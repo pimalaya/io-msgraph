@@ -84,7 +84,7 @@
 //!
 //! Domain types mirror the Graph schema. Full-resource bodies double as
 //! create and update bodies thanks to `skip_serializing_if` on every
-//! optional field; contact fields use the [`v1::MsgraphField`]
+//! optional field; contact fields use the [`v1::field::MsgraphField`]
 //! tri-state to distinguish a field left out of a PATCH body from one
 //! explicitly cleared. List operations take borrowed `*Params` structs
 //! whose fields rename to the OData system query options (`$top`,

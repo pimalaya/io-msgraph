@@ -105,7 +105,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
-    use crate::v1::MsgraphField;
+    use crate::v1::field::MsgraphField;
 
     #[derive(Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
     struct Body {

@@ -9,20 +9,61 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/contact-delta>
 
-use alloc::format;
+use alloc::{format, string::String, vec::Vec};
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::{
     coroutine::*,
     msgraph_try,
     v1::{
-        rest::users::contacts::MsgraphContactsDeltaResponse,
+        rest::users::contacts::MsgraphContact,
         send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
     },
 };
+
+/// One page of a contacts delta round.
+///
+/// More pages follow through `next_link`; the round ends when
+/// `delta_link` arrives (the token of the next round).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct MsgraphContactsDeltaResponse {
+    /// The changed contacts of the page.
+    #[serde(default)]
+    pub value: Vec<MsgraphContactDelta>,
+    /// The URL of the next page of the round, when one exists.
+    #[serde(default, rename = "@odata.nextLink")]
+    pub next_link: Option<String>,
+    /// The URL closing the round, carrying the next round's token.
+    #[serde(default, rename = "@odata.deltaLink")]
+    pub delta_link: Option<String>,
+}
+
+/// One contact row of a delta page: the contact (only its id when the
+/// row is a removal), plus the `@removed` marker.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct MsgraphContactDelta {
+    /// The changed contact.
+    #[serde(flatten)]
+    pub contact: MsgraphContact,
+    /// The removal marker, present when the row is a removal.
+    #[serde(default, rename = "@removed", skip_serializing_if = "Option::is_none")]
+    pub removed: Option<MsgraphRemoved>,
+}
+
+/// The `@removed` marker of a delta row.
+///
+/// <https://learn.microsoft.com/en-us/graph/delta-query-overview>
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct MsgraphRemoved {
+    /// `deleted` for a hard delete, `changed` for an item that left
+    /// the queried scope.
+    #[serde(default)]
+    pub reason: String,
+}
 
 /// I/O-free coroutine for the initial contacts delta request; later
 /// rounds feed the returned links through [`MsgraphSend`] directly.

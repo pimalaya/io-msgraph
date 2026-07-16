@@ -3,11 +3,11 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/user-list-contacts>
 
-use alloc::format;
+use alloc::{format, string::String, vec::Vec};
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::{
@@ -15,10 +15,21 @@ use crate::{
     msgraph_try,
     v1::{
         query::to_query_pairs,
-        rest::users::contacts::MsgraphContactsListResponse,
+        rest::users::contacts::MsgraphContact,
         send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
     },
 };
+
+/// One page of contacts (`value` plus the OData paging link).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct MsgraphContactsListResponse {
+    /// The contacts of the page.
+    #[serde(default)]
+    pub value: Vec<MsgraphContact>,
+    /// The URL of the next page, when one exists.
+    #[serde(default, rename = "@odata.nextLink")]
+    pub next_link: Option<String>,
+}
 
 /// OData query parameters for listing contacts.
 #[derive(Debug, Clone, Default, Serialize, Eq, PartialEq)]

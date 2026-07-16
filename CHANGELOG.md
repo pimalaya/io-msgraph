@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-16
+
+### Changed
+
+- Reorganised the resource types so each lives in its resource module directly, dropping the internal `types` submodules and per-type files together with their flattened re-exports.
+
+  Entity and value-object types keep their existing path (`v1::rest::users::messages::MsgraphMessage`, `MsgraphEmailAddress`, `contacts::MsgraphContact`, `mail_folders::MsgraphMailFolder` and so on). The shared tri-state moved from `v1::MsgraphField` to `v1::field::MsgraphField`. Operation-specific companions moved into their operation module: every `Msgraph*ListResponse` now lives under its resource's `list` module (for example `messages::list::MsgraphMessagesListResponse`, `mail_folders::list::MsgraphMailFoldersListResponse`), and the contacts delta types `MsgraphContactsDeltaResponse`, `MsgraphContactDelta` and `MsgraphRemoved` now live under `contacts::delta`.
+
 ## [0.1.0] - 2026-07-15
 
 ### Added
@@ -16,5 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the contacts surface under `v1::rest::users`: contact folders (list, get, create, update, delete, list child folders) and contacts (list, get, create, update, delete, track changes with delta).
 - Added `MsgraphClientStd` (`client` feature): a std blocking client with one convenience method per operation, and a `connect` constructor opening graph.microsoft.com through pimalaya-stream (`rustls-ring` default, `rustls-aws`, `native-tls`).
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.1.0..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.2.0..HEAD
+[0.2.0]: https://github.com/pimalaya/io-msgraph/compare/v0.1.0..v0.2.0
 [0.1.0]: https://github.com/pimalaya/io-msgraph/compare/root..v0.1.0

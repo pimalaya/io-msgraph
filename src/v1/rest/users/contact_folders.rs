@@ -1,12 +1,18 @@
-//! Microsoft Graph contact folder resource.
-//!
-//! A folder of contacts in a user's mailbox, with its hierarchy link.
+//! Microsoft Graph contact folders (`users.contactFolders`): list,
+//! get, create, update, delete, list child folders.
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/resources/contactfolder>
 
 use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
+
+pub mod child_folders;
+pub mod create;
+pub mod delete;
+pub mod get;
+pub mod list;
+pub mod update;
 
 /// A contact folder in a user's mailbox. Doubles as the create/update
 /// body, where only `display_name` is serialized.

@@ -7,7 +7,7 @@ mod common;
 use common::{empty_response, json_response, run, text_response};
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use io_msgraph::v1::{
-    MsgraphField,
+    field::MsgraphField,
     query::to_query_pairs,
     rest::users::{
         contact_folders::{

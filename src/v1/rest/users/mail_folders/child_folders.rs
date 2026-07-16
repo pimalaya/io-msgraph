@@ -14,8 +14,8 @@ use crate::{
     msgraph_try,
     v1::{
         query::to_query_pairs,
-        rest::users::mail_folders::{
-            MsgraphMailFoldersListResponse, list::MsgraphMailFoldersListParams,
+        rest::users::mail_folders::list::{
+            MsgraphMailFoldersListParams, MsgraphMailFoldersListResponse,
         },
         send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
     },

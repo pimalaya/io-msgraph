@@ -3,20 +3,32 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/message-list-attachments>
 
-use alloc::format;
+use alloc::{format, string::String, vec::Vec};
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::{
     coroutine::*,
     msgraph_try,
     v1::{
-        rest::users::messages::attachments::MsgraphAttachmentsListResponse,
+        rest::users::messages::attachments::MsgraphAttachment,
         send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
     },
 };
+
+/// One page of attachments (`value` plus the OData paging link).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct MsgraphAttachmentsListResponse {
+    /// The attachments of the page.
+    #[serde(default)]
+    pub value: Vec<MsgraphAttachment>,
+    /// The URL of the next page, when one exists.
+    #[serde(default, rename = "@odata.nextLink")]
+    pub next_link: Option<String>,
+}
 
 /// Lists the attachments of a Microsoft Graph message.
 pub struct MsgraphAttachmentsList {
