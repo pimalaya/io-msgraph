@@ -23,6 +23,7 @@ pub mod update;
 /// A message in a mail folder. Doubles as the create/update body, where
 /// only the set (non-empty) fields are serialized.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct MsgraphMessage {
     /// The unique identifier of the message.
@@ -92,6 +93,7 @@ pub struct MsgraphMessage {
 
 /// A message recipient, wrapping an email address.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct MsgraphRecipient {
     /// The email address of the recipient.
@@ -100,6 +102,7 @@ pub struct MsgraphRecipient {
 
 /// A named email address (`recipient.emailAddress`).
 #[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct MsgraphEmailAddress {
     /// The display name paired with the address.
@@ -112,6 +115,7 @@ pub struct MsgraphEmailAddress {
 
 /// The body of a message, in text or HTML format.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct MsgraphItemBody {
     /// The format of the body content.
@@ -124,6 +128,7 @@ pub struct MsgraphItemBody {
 
 /// Follow-up flag set on a message.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct MsgraphFollowupFlag {
     /// The status of the follow-up flag.
@@ -133,6 +138,7 @@ pub struct MsgraphFollowupFlag {
 
 /// Format of a message body.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum MsgraphBodyType {
     /// Plain text body.
@@ -143,6 +149,7 @@ pub enum MsgraphBodyType {
 
 /// Status of a follow-up flag.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum MsgraphFlagStatus {
     /// The message is not flagged.
@@ -155,6 +162,7 @@ pub enum MsgraphFlagStatus {
 
 /// Importance of a message.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum MsgraphImportance {
     /// Low importance.

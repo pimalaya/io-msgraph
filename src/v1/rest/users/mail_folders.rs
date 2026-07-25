@@ -19,6 +19,7 @@ pub mod update;
 /// A mail folder in a user's mailbox. Doubles as the create body, where
 /// only `display_name` (and optionally `is_hidden`) is serialized.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct MsgraphMailFolder {
     /// The unique identifier of the folder.

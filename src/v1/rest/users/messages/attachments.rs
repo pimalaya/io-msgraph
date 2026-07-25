@@ -19,6 +19,7 @@ pub mod list;
 /// `referenceAttachment`); this captures the common fields plus the
 /// `fileAttachment` content bytes (base64) when present.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct MsgraphAttachment {
     /// The unique identifier of the attachment.
