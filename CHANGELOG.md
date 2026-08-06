@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-06
+
 ### Added
 
 - Added the messages delta operation under `v1::rest::users::messages::delta`, transposing the contacts one: an initial coroutine over the whole mailbox or a mail folder (with `$select` support), a `from_link` constructor continuing a round from an `@odata.nextLink` or starting the next round from a saved `@odata.deltaLink`, the delta page response types with the `@removed` marker, and the matching `messages_delta` and `messages_delta_from_link` client methods.
@@ -36,7 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the contacts surface under `v1::rest::users`: contact folders (list, get, create, update, delete, list child folders) and contacts (list, get, create, update, delete, track changes with delta).
 - Added `MsgraphClientStd` (`client` feature): a std blocking client with one convenience method per operation, and a `connect` constructor opening graph.microsoft.com through pimalaya-stream (`rustls-ring` default, `rustls-aws`, `native-tls`).
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.2.1..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.2.2..HEAD
+[0.2.2]: https://github.com/pimalaya/io-msgraph/compare/v0.2.1..v0.2.2
 [0.2.1]: https://github.com/pimalaya/io-msgraph/compare/v0.2.0..v0.2.1
 [0.2.0]: https://github.com/pimalaya/io-msgraph/compare/v0.1.0..v0.2.0
 [0.1.0]: https://github.com/pimalaya/io-msgraph/compare/root..v0.1.0
