@@ -99,6 +99,7 @@ use crate::{
             create::MsgraphMessageCreate,
             create_mime::MsgraphMessageCreateMime,
             delete::MsgraphMessageDelete,
+            delta::{MsgraphMessagesDelta, MsgraphMessagesDeltaResponse},
             get::MsgraphMessageGet,
             get_raw::MsgraphMessageGetRaw,
             list::{MsgraphMessagesList, MsgraphMessagesListParams, MsgraphMessagesListResponse},
@@ -569,6 +570,27 @@ impl MsgraphClientStd {
         destination: &str,
     ) -> Result<MsgraphSendOutput<MsgraphMessage>, MsgraphClientStdError> {
         let coroutine = MsgraphMessageCopy::new(&self.auth, &self.user_id, id, destination)?;
+        self.run(coroutine)
+    }
+
+    /// Starts a messages delta round over the whole mailbox, or over
+    /// the given mail folder.
+    pub fn messages_delta(
+        &mut self,
+        folder: Option<&str>,
+        select: Option<&str>,
+    ) -> Result<MsgraphSendOutput<MsgraphMessagesDeltaResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphMessagesDelta::new(&self.auth, &self.user_id, folder, select)?;
+        self.run(coroutine)
+    }
+
+    /// Continues a messages delta round from an `@odata.nextLink`, or
+    /// starts the next round from a saved `@odata.deltaLink`.
+    pub fn messages_delta_from_link(
+        &mut self,
+        link: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphMessagesDeltaResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphMessagesDelta::from_link(&self.auth, link)?;
         self.run(coroutine)
     }
 

@@ -1,6 +1,6 @@
-//! Microsoft Graph messages (`users.messages`): list, get (JSON and raw
-//! MIME), create draft (JSON and raw MIME), update, delete, move, copy,
-//! send and the nested attachments collection.
+//! Microsoft Graph messages (`users.messages`): list, delta, get (JSON
+//! and raw MIME), create draft (JSON and raw MIME), update, delete,
+//! move, copy, send and the nested attachments collection.
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/resources/message>
 
@@ -13,6 +13,7 @@ pub mod copy;
 pub mod create;
 pub mod create_mime;
 pub mod delete;
+pub mod delta;
 pub mod get;
 pub mod get_raw;
 pub mod list;

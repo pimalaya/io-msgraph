@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added the messages delta operation under `v1::rest::users::messages::delta`, transposing the contacts one: an initial coroutine over the whole mailbox or a mail folder (with `$select` support), a `from_link` constructor continuing a round from an `@odata.nextLink` or starting the next round from a saved `@odata.deltaLink`, the delta page response types with the `@removed` marker, and the matching `messages_delta` and `messages_delta_from_link` client methods.
+
 ## [0.2.1] - 2026-07-25
 
 ### Added

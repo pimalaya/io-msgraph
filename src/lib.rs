@@ -78,8 +78,9 @@
 //! operation a file named after it: mail_folders (list, get, create,
 //! update, delete, move, copy, child_folders), messages (list, get,
 //! get_raw, create, create_mime, update, delete, move, copy, send,
-//! attachments), contact_folders (list, get, create, update, delete,
-//! child_folders), contacts (list, get, create, update, delete, delta)
+//! delta, attachments), contact_folders (list, get, create, update,
+//! delete, child_folders), contacts (list, get, create, update,
+//! delete, delta)
 //! and the sendMail action (JSON and MIME form). A reader who knows the
 //! reference knows where to look.
 //!

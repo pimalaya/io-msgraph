@@ -32,6 +32,7 @@ use io_msgraph::v1::{
                 list::MsgraphAttachmentsList,
             },
             create_mime::MsgraphMessageCreateMime,
+            delta::MsgraphMessagesDelta,
             get_raw::MsgraphMessageGetRaw,
             list::MsgraphMessagesList,
             list::MsgraphMessagesListParams,
@@ -153,6 +154,128 @@ fn messages_list_builds_odata_query() {
     // NOTE: unset params do not appear
     assert!(!request.contains("%24skip"));
     assert!(!request.contains("%24filter"));
+}
+
+#[test]
+fn messages_delta_parses_changes_and_removals() {
+    let body = r#"{
+        "value": [
+            {
+                "id": "MSG1",
+                "subject": "hello",
+                "isRead": false,
+                "receivedDateTime": "2026-08-06T10:00:00Z",
+                "parentFolderId": "INBOX1",
+                "from": { "emailAddress": { "name": "Alice", "address": "alice@example.com" } }
+            },
+            { "id": "MSG2", "@removed": { "reason": "deleted" } }
+        ],
+        "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/messages/delta?$skiptoken=abc"
+    }"#;
+
+    let mut coroutine = MsgraphMessagesDelta::new(&auth(), "me", None, None).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let out = result.unwrap();
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/messages/delta"),
+        "got: {request}"
+    );
+
+    assert_eq!(out.response.value.len(), 2);
+    let changed = &out.response.value[0];
+    assert_eq!(changed.message.id, "MSG1");
+    assert_eq!(changed.message.subject.as_deref(), Some("hello"));
+    assert_eq!(changed.message.is_read, Some(false));
+    assert_eq!(
+        changed.message.received_date_time.as_deref(),
+        Some("2026-08-06T10:00:00Z")
+    );
+    assert_eq!(changed.message.parent_folder_id.as_deref(), Some("INBOX1"));
+    assert_eq!(
+        changed
+            .message
+            .from
+            .as_ref()
+            .and_then(|from| from.email_address.address.as_deref()),
+        Some("alice@example.com")
+    );
+    assert!(changed.removed.is_none());
+
+    let removed = &out.response.value[1];
+    assert_eq!(removed.message.id, "MSG2");
+    assert_eq!(removed.removed.as_ref().unwrap().reason, "deleted");
+
+    assert_eq!(
+        out.response.next_link.as_deref(),
+        Some("https://graph.microsoft.com/v1.0/me/messages/delta?$skiptoken=abc")
+    );
+    assert!(out.response.delta_link.is_none());
+}
+
+#[test]
+fn messages_delta_from_link_closes_round_with_delta_link() {
+    let body = r#"{
+        "value": [],
+        "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/messages/delta?$deltatoken=xyz"
+    }"#;
+
+    let link = "https://graph.microsoft.com/v1.0/me/messages/delta?$skiptoken=abc";
+    let mut coroutine = MsgraphMessagesDelta::from_link(&auth(), link).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let out = result.unwrap();
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.contains("/v1.0/me/messages/delta"),
+        "got: {request}"
+    );
+    assert!(request.contains("skiptoken=abc"), "got: {request}");
+
+    assert!(out.response.value.is_empty());
+    assert!(out.response.next_link.is_none());
+    assert_eq!(
+        out.response.delta_link.as_deref(),
+        Some("https://graph.microsoft.com/v1.0/me/messages/delta?$deltatoken=xyz")
+    );
+}
+
+#[test]
+fn messages_delta_builds_folder_scoped_url_with_select() {
+    let mut coroutine =
+        MsgraphMessagesDelta::new(&auth(), "me", Some("inbox"), Some("id,subject,isRead")).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 200 OK", r#"{ "value": [] }"#),
+    );
+    assert!(result.is_ok());
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/mailFolders/inbox/messages/delta"),
+        "got: {request}"
+    );
+    assert!(
+        request.contains("%24select=id%2Csubject%2CisRead"),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn messages_delta_addresses_explicit_user() {
+    let mut coroutine = MsgraphMessagesDelta::new(&auth(), "USER1", None, None).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 200 OK", r#"{ "value": [] }"#),
+    );
+    assert!(result.is_ok());
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/users/USER1/messages/delta"),
+        "got: {request}"
+    );
 }
 
 #[test]

@@ -23,7 +23,7 @@ This library is composed of 3 feature-gated layers:
 ## Features
 
 - **I/O-free coroutines**: state machines with no socket, no async runtime and no forced I/O model; run them from any blocking, async or test harness.
-- **Mail surface**: manage mail folders, messages and attachments, download raw MIME content, create drafts from JSON or MIME and send them (see [API coverage](#api-coverage)).
+- **Mail surface**: manage mail folders, messages and attachments, download raw MIME content, create drafts from JSON or MIME and send them, with incremental change tracking through delta queries (see [API coverage](#api-coverage)).
 - **Contacts surface**: manage contact folders and contacts, with three-state update fields distinguishing a cleared field from a preserved one, and incremental change tracking through delta queries.
 - **Bearer-token authentication**: requests carry the OAuth 2.0 access token you provide; minting and refreshing it stays under your control.
 - **Light client**: a standard, blocking client exposing one method per operation over a stream you opened yourself (requires `client` feature).
@@ -43,7 +43,7 @@ Microsoft Graph is a single API spanning many domains; io-msgraph covers it incr
 |----------------------------|----------------------------------------------------------------------------------------|
 | users                      | get the signed-in user profile; sendMail action (JSON and MIME form)                  |
 | users.mailFolders          | list, get, create, update, delete, move, copy, list child folders                      |
-| users.messages             | list, get, get raw MIME, create draft from JSON or MIME, update, delete, move, copy, send |
+| users.messages             | list, get, get raw MIME, create draft from JSON or MIME, update, delete, move, copy, send, track changes with delta |
 | users.messages.attachments | list, create, get raw content, delete                                                  |
 | users.contactFolders       | list, get, create, update, delete, list child folders                                  |
 | users.contacts             | list, get, create, update, delete, track changes with delta                            |
