@@ -16,8 +16,8 @@ use io_msgraph::v1::{
         },
         contacts::{
             MsgraphContact, create::MsgraphContactCreate, delete::MsgraphContactDelete,
-            list::MsgraphContactsList, list::MsgraphContactsListParams,
-            update::MsgraphContactUpdate,
+            delta::MsgraphContactsDelta, list::MsgraphContactsList,
+            list::MsgraphContactsListParams, update::MsgraphContactUpdate,
         },
         get::MsgraphUserGet,
         mail_folders::{
@@ -574,6 +574,58 @@ fn contacts_list_builds_odata_query() {
     // NOTE: unset params do not appear
     assert!(!request.contains("%24skip"));
     assert!(!request.contains("%24filter"));
+}
+
+#[test]
+fn contacts_delta_parses_changes_and_removals() {
+    let body = r#"{
+        "value": [
+            { "id": "CT1", "givenName": "Alice" },
+            { "id": "CT2", "@removed": { "reason": "deleted" } }
+        ],
+        "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/contacts/delta?$deltatoken=xyz"
+    }"#;
+
+    let mut coroutine = MsgraphContactsDelta::new(&auth(), "me", Some("AAA"), Some("id")).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let out = result.unwrap();
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.contains("/v1.0/me/contactFolders/AAA/contacts/delta"),
+        "got: {request}"
+    );
+    assert!(request.contains("%24select=id"), "got: {request}");
+
+    assert_eq!(out.response.value.len(), 2);
+    assert_eq!(out.response.value[0].contact.id, "CT1");
+    assert!(out.response.value[0].removed.is_none());
+    assert_eq!(out.response.value[1].contact.id, "CT2");
+    assert_eq!(
+        out.response.value[1].removed.as_ref().unwrap().reason,
+        "deleted"
+    );
+    assert_eq!(
+        out.response.delta_link.as_deref(),
+        Some("https://graph.microsoft.com/v1.0/me/contacts/delta?$deltatoken=xyz")
+    );
+}
+
+#[test]
+fn contacts_delta_from_link_requests_it_verbatim() {
+    let link = "https://graph.microsoft.com/v1.0/me/contactFolders('AAA')/contacts/delta?$deltatoken=xyz";
+    let mut coroutine = MsgraphContactsDelta::from_link(&auth(), link).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 200 OK", r#"{ "value": [] }"#),
+    );
+    assert!(result.is_ok());
+
+    // NOTE: the link carries the folder, the select and the token, so
+    // none of them are rebuilt.
+    let request = String::from_utf8_lossy(&written);
+    assert!(request.contains("/contacts/delta"), "got: {request}");
+    assert!(request.contains("deltatoken=xyz"), "got: {request}");
 }
 
 #[test]

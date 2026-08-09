@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `MsgraphContactsDelta::from_link` and the matching `contacts_delta_from_link` client method, continuing a contacts delta round from an `@odata.nextLink` or starting the next round from a saved `@odata.deltaLink`. The messages delta gained both when it was transposed from the contacts one in 0.2.2; the original never had them, so a contacts round could only ever be opened, never resumed.
+
 ## [0.2.2] - 2026-08-06
 
 ### Added

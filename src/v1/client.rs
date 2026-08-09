@@ -483,6 +483,16 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Continues a contacts delta round from an `@odata.nextLink`, or
+    /// starts the next round from a saved `@odata.deltaLink`.
+    pub fn contacts_delta_from_link(
+        &mut self,
+        link: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphContactsDeltaResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphContactsDelta::from_link(&self.auth, link)?;
+        self.run(coroutine)
+    }
+
     /// Lists the messages of the whole mailbox, or of the given mail
     /// folder.
     pub fn messages_list(

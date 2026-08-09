@@ -65,8 +65,9 @@ pub struct MsgraphRemoved {
     pub reason: String,
 }
 
-/// I/O-free coroutine for the initial contacts delta request; later
-/// rounds feed the returned links through [`MsgraphSend`] directly.
+/// I/O-free coroutine for a contacts delta request, opening a round
+/// with [`new`](Self::new) or continuing one with
+/// [`from_link`](Self::from_link).
 pub struct MsgraphContactsDelta {
     send: MsgraphSend<MsgraphContactsDeltaResponse>,
 }
@@ -96,6 +97,21 @@ impl MsgraphContactsDelta {
             url.query_pairs_mut().append_pair("$select", select);
         }
 
+        let send = MsgraphSend::get(auth, url);
+
+        Ok(Self { send })
+    }
+
+    /// Continues a round from an `@odata.nextLink`, or starts the next
+    /// round from a saved `@odata.deltaLink`.
+    ///
+    /// The link already carries the folder, the `$select` and the
+    /// server-issued token, so it is sent as-is through a plain GET.
+    pub fn from_link(auth: &HttpAuthBearer, link: &str) -> Result<Self, MsgraphSendError> {
+        debug!("prepare microsoft graph contacts delta from link");
+        trace!("link: {link:?}");
+
+        let url = Url::parse(link)?;
         let send = MsgraphSend::get(auth, url);
 
         Ok(Self { send })
