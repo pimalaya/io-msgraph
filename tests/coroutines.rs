@@ -613,7 +613,8 @@ fn contacts_delta_parses_changes_and_removals() {
 
 #[test]
 fn contacts_delta_from_link_requests_it_verbatim() {
-    let link = "https://graph.microsoft.com/v1.0/me/contactFolders('AAA')/contacts/delta?$deltatoken=xyz";
+    let link =
+        "https://graph.microsoft.com/v1.0/me/contactFolders('AAA')/contacts/delta?$deltatoken=xyz";
     let mut coroutine = MsgraphContactsDelta::from_link(&auth(), link).unwrap();
     let (result, written) = run(
         &mut coroutine,
