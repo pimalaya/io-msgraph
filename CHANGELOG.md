@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added JSON batching under `v1::rest::batch`: `MsgraphBatch` sends up to 20 requests in one `POST /$batch`, and `MsgraphBatchResponse::parse` reads each response as its own typed body or Graph error. The client gained the matching `batch` method.
+
 ## [0.3.0] - 2026-08-15
 
 ### Added

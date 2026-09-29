@@ -9,6 +9,7 @@ use io_http::rfc6750::bearer::HttpAuthBearer;
 use io_msgraph::v1::{
     field::MsgraphField,
     query::to_query_pairs,
+    rest::batch::{MsgraphBatch, MsgraphBatchRequest},
     rest::users::{
         contact_folders::{
             MsgraphContactFolder, create::MsgraphContactFolderCreate,
@@ -83,6 +84,75 @@ fn mail_folders_list_parses_value() {
     assert_eq!(out.response.value[0].display_name, "Inbox");
     assert_eq!(out.response.value[0].total_item_count, Some(71));
     assert_eq!(out.response.value[1].display_name, "Archive");
+}
+
+#[test]
+fn batch_posts_requests_and_parses_responses() {
+    let body = r#"{
+        "responses": [
+            { "id": "2", "status": 404, "body": { "error": { "code": "ErrorFolderNotFound", "message": "Not found" } } },
+            { "id": "1", "status": 200, "headers": { "Content-Type": "application/json" }, "body": { "id": "AAA", "displayName": "Inbox" } }
+        ]
+    }"#;
+
+    let requests = [
+        MsgraphBatchRequest {
+            id: "1".into(),
+            method: "GET".into(),
+            url: "/me/mailFolders/inbox".into(),
+            ..Default::default()
+        },
+        MsgraphBatchRequest {
+            id: "2".into(),
+            method: "GET".into(),
+            url: "/me/mailFolders/archive".into(),
+            ..Default::default()
+        },
+    ];
+    let mut coroutine = MsgraphBatch::new(&auth(), &requests).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let mut responses = result.unwrap().response.responses;
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(request.starts_with("POST /v1.0/$batch"), "got: {request}");
+    assert!(
+        request.contains(r#"{"requests":[{"id":"1","method":"GET","url":"/me/mailFolders/inbox"}"#),
+        "got: {request}"
+    );
+
+    let folder: MsgraphMailFolder = responses.pop().unwrap().parse().unwrap();
+    assert_eq!(folder.id, "AAA");
+
+    let err = responses.pop().unwrap().parse::<MsgraphMailFolder>();
+    assert!(
+        matches!(err, Err(MsgraphSendError::Api { status: 404, ref code, .. }) if code == "ErrorFolderNotFound")
+    );
+}
+
+#[test]
+fn batch_rejects_empty_oversized_and_duplicate_ids() {
+    let request = |id: &str| MsgraphBatchRequest {
+        id: id.into(),
+        method: "GET".into(),
+        url: "/me".into(),
+        ..Default::default()
+    };
+
+    let empty = MsgraphBatch::new(&auth(), &[]);
+    assert!(matches!(empty, Err(MsgraphSendError::InvalidRequest(_))));
+
+    let oversized: Vec<_> = (0..21).map(|i| request(&i.to_string())).collect();
+    let oversized = MsgraphBatch::new(&auth(), &oversized);
+    assert!(matches!(
+        oversized,
+        Err(MsgraphSendError::InvalidRequest(_))
+    ));
+
+    let duplicate = MsgraphBatch::new(&auth(), &[request("1"), request("1")]);
+    assert!(matches!(
+        duplicate,
+        Err(MsgraphSendError::InvalidRequest(_))
+    ));
 }
 
 #[test]

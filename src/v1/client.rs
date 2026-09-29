@@ -48,6 +48,7 @@ use url::Url;
 use crate::v1::send::MSGRAPH_API_BASE;
 use crate::{
     coroutine::*,
+    v1::rest::batch::{MsgraphBatch, MsgraphBatchRequest, MsgraphBatchResponses},
     v1::rest::users::{
         MsgraphUser,
         contact_folders::{
@@ -293,6 +294,15 @@ impl MsgraphClientStd {
                 }
             }
         }
+    }
+
+    /// Sends several requests in one HTTP call.
+    pub fn batch(
+        &mut self,
+        requests: &[MsgraphBatchRequest],
+    ) -> Result<MsgraphSendOutput<MsgraphBatchResponses>, MsgraphClientStdError> {
+        let coroutine = MsgraphBatch::new(&self.auth, requests)?;
+        self.run(coroutine)
     }
 
     /// Gets the profile of the mailbox owner.

@@ -81,7 +81,8 @@
 //! delta, attachments), contact_folders (list, get, create, update,
 //! delete, child_folders), contacts (list, get, create, update,
 //! delete, delta)
-//! and the sendMail action (JSON and MIME form). A reader who knows the
+//! and the sendMail action (JSON and MIME form). JSON batching lives at
+//! the API root, under [`v1::rest::batch`]. A reader who knows the
 //! reference knows where to look.
 //!
 //! Domain types mirror the Graph schema. Full-resource bodies double as
