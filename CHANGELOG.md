@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added `MsgraphClientStdConnectOptions::proxy`, tunnelling the connection through a SOCKS5 or HTTP proxy.
+
 ## [0.3.1] - 2026-09-29
 
 ### Added

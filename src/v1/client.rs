@@ -18,12 +18,6 @@ use alloc::{
 use std::io::{self, Read, Write};
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
-#[cfg(any(
-    feature = "rustls-aws",
-    feature = "rustls-ring",
-    feature = "native-tls"
-))]
-use pimalaya_stream::stream::{Stream, TcpConnectOptions, TlsConnectOptions};
 /// TLS backend selection re-exported from pimalaya-stream, feeding
 /// [`MsgraphClientStdConnectOptions::tls`].
 #[cfg(any(
@@ -32,6 +26,15 @@ use pimalaya_stream::stream::{Stream, TcpConnectOptions, TlsConnectOptions};
     feature = "native-tls"
 ))]
 pub use pimalaya_stream::tls::*;
+#[cfg(any(
+    feature = "rustls-aws",
+    feature = "rustls-ring",
+    feature = "native-tls"
+))]
+use pimalaya_stream::{
+    proxy::Proxy,
+    stream::{Stream, TcpConnectOptions, TlsConnectOptions},
+};
 #[cfg(any(
     feature = "rustls-aws",
     feature = "rustls-ring",
@@ -231,6 +234,14 @@ pub struct MsgraphClientStdConnectOptions {
         feature = "native-tls"
     ))]
     pub tls: Tls,
+    /// How the connection reaches the API: [`Proxy::System`] resolves it
+    /// from the environment, [`Proxy::None`] connects directly.
+    #[cfg(any(
+        feature = "rustls-aws",
+        feature = "rustls-ring",
+        feature = "native-tls"
+    ))]
+    pub proxy: Proxy,
     /// The mailbox owner: `me`, a user id or a principal name.
     pub user_id: String,
 }
@@ -244,6 +255,12 @@ impl Default for MsgraphClientStdConnectOptions {
                 feature = "native-tls"
             ))]
             tls: Tls::default(),
+            #[cfg(any(
+                feature = "rustls-aws",
+                feature = "rustls-ring",
+                feature = "native-tls"
+            ))]
+            proxy: Proxy::default(),
             user_id: String::from("me"),
         }
     }
@@ -287,7 +304,11 @@ impl MsgraphClientStd {
         token: impl ToString,
         options: MsgraphClientStdConnectOptions,
     ) -> Result<Self, MsgraphClientStdError> {
-        let MsgraphClientStdConnectOptions { tls, user_id } = options;
+        let MsgraphClientStdConnectOptions {
+            tls,
+            proxy,
+            user_id,
+        } = options;
 
         let url = Url::parse(MSGRAPH_API_BASE).expect("Microsoft Graph API base URL is valid");
         let host = url
@@ -297,13 +318,18 @@ impl MsgraphClientStd {
         let stream = match url.scheme() {
             "http" => {
                 let port = url.port().unwrap_or(80);
-                let opts = TcpConnectOptions::default();
+                let opts = TcpConnectOptions {
+                    proxy,
+                    ..Default::default()
+                };
+
                 Stream::connect_tcp(host, port, opts)?
             }
             "https" => {
                 let port = url.port().unwrap_or(443);
                 let opts = TlsConnectOptions {
                     tls: tls.clone(),
+                    proxy,
                     ..Default::default()
                 };
 
