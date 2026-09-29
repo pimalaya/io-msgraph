@@ -8,7 +8,7 @@
     feature = "native-tls"
 ))]
 use core::time::Duration;
-use core::{any::Any, fmt};
+use core::{any::Any, error::Error, fmt};
 
 use alloc::{
     boxed::Box,
@@ -32,7 +32,6 @@ use pimalaya_stream::stream::{Stream, TcpConnectOptions, TlsConnectOptions};
     feature = "native-tls"
 ))]
 pub use pimalaya_stream::tls::*;
-use thiserror::Error;
 #[cfg(any(
     feature = "rustls-aws",
     feature = "rustls-ring",
@@ -114,29 +113,25 @@ use crate::{
 };
 
 /// Error returned by [`MsgraphClientStd`] operations.
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum MsgraphClientStdError {
     /// A coroutine completed with an error.
-    #[error(transparent)]
-    Send(#[from] MsgraphSendError),
+    Send(MsgraphSendError),
     /// Reading from or writing to the stream failed.
-    #[error(transparent)]
-    Io(#[from] io::Error),
+    Io(io::Error),
     /// Opening the TCP/TLS connection failed.
     #[cfg(any(
         feature = "rustls-aws",
         feature = "rustls-ring",
         feature = "native-tls"
     ))]
-    #[error(transparent)]
-    Tls(#[from] anyhow::Error),
+    Tls(anyhow::Error),
     /// The API base URL has no host to connect to.
     #[cfg(any(
         feature = "rustls-aws",
         feature = "rustls-ring",
         feature = "native-tls"
     ))]
-    #[error("Microsoft Graph URL `{0}` has no host")]
     UrlMissingHost(String),
     /// The API base URL scheme is neither http nor https.
     #[cfg(any(
@@ -144,15 +139,86 @@ pub enum MsgraphClientStdError {
         feature = "rustls-ring",
         feature = "native-tls"
     ))]
-    #[error(
-        "Microsoft Graph URL `{url}` has unsupported scheme `{scheme}` (expected `http` or `https`)"
-    )]
     UrlUnsupportedScheme {
         /// The rejected API base URL.
         url: String,
         /// The scheme of the rejected URL.
         scheme: String,
     },
+}
+
+impl fmt::Display for MsgraphClientStdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Send(err) => err.fmt(f),
+            Self::Io(err) => err.fmt(f),
+            #[cfg(any(
+                feature = "rustls-aws",
+                feature = "rustls-ring",
+                feature = "native-tls"
+            ))]
+            Self::Tls(err) => err.fmt(f),
+            #[cfg(any(
+                feature = "rustls-aws",
+                feature = "rustls-ring",
+                feature = "native-tls"
+            ))]
+            Self::UrlMissingHost(url) => write!(f, "Microsoft Graph URL `{url}` has no host"),
+            #[cfg(any(
+                feature = "rustls-aws",
+                feature = "rustls-ring",
+                feature = "native-tls"
+            ))]
+            Self::UrlUnsupportedScheme { url, scheme } => write!(
+                f,
+                "Microsoft Graph URL `{url}` has unsupported scheme `{scheme}` (expected `http` or `https`)"
+            ),
+        }
+    }
+}
+
+impl Error for MsgraphClientStdError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Send(err) => err.source(),
+            Self::Io(err) => err.source(),
+            #[cfg(any(
+                feature = "rustls-aws",
+                feature = "rustls-ring",
+                feature = "native-tls"
+            ))]
+            Self::Tls(err) => err.source(),
+            #[cfg(any(
+                feature = "rustls-aws",
+                feature = "rustls-ring",
+                feature = "native-tls"
+            ))]
+            _ => None,
+        }
+    }
+}
+
+impl From<MsgraphSendError> for MsgraphClientStdError {
+    fn from(err: MsgraphSendError) -> Self {
+        Self::Send(err)
+    }
+}
+
+impl From<io::Error> for MsgraphClientStdError {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
+#[cfg(any(
+    feature = "rustls-aws",
+    feature = "rustls-ring",
+    feature = "native-tls"
+))]
+impl From<anyhow::Error> for MsgraphClientStdError {
+    fn from(err: anyhow::Error) -> Self {
+        Self::Tls(err)
+    }
 }
 
 /// Optional settings for [`MsgraphClientStd::connect`]; every field has a

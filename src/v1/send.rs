@@ -5,7 +5,7 @@
 //! Microsoft Graph reference:
 //! <https://learn.microsoft.com/en-us/graph/api/overview>.
 
-use core::marker::PhantomData;
+use core::{error::Error, fmt, marker::PhantomData};
 
 use alloc::{
     format,
@@ -24,7 +24,6 @@ use io_http::{
 };
 use log::{debug, trace};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
-use thiserror::Error;
 use url::Url;
 
 use crate::coroutine::{MsgraphCoroutine, MsgraphCoroutineState, MsgraphYield};
@@ -62,26 +61,20 @@ impl<'de> Deserialize<'de> for MsgraphNoResponse {
 }
 
 /// Error returned by [`MsgraphSend`] and the raw `$value` coroutines.
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum MsgraphSendError {
     /// The underlying HTTP/1.1 exchange failed.
-    #[error("Microsoft Graph HTTP request failed: {0}")]
-    Send(#[from] Http11SendError),
+    Send(Http11SendError),
     /// The JSON request body could not be serialized.
-    #[error("Microsoft Graph request serialization failed: {0}")]
-    SerializeRequest(#[source] serde_json::Error),
+    SerializeRequest(serde_json::Error),
     /// The 2xx response body could not be deserialized.
-    #[error("Microsoft Graph response parsing failed: {0}")]
-    ParseResponse(#[source] serde_json::Error),
+    ParseResponse(serde_json::Error),
     /// The request URL could not be built.
-    #[error("Microsoft Graph URL parsing failed: {0}")]
-    ParseUrl(#[from] url::ParseError),
+    ParseUrl(url::ParseError),
     /// The request arguments were rejected before sending.
-    #[error("Invalid Microsoft Graph request: {0}")]
     InvalidRequest(String),
     /// The Graph API answered a non-2xx status; carries the parsed
     /// error envelope.
-    #[error("Microsoft Graph API returned HTTP {status} ({code}): {message}")]
     Api {
         /// The HTTP status of the response.
         status: u16,
@@ -91,8 +84,55 @@ pub enum MsgraphSendError {
         message: String,
     },
     /// The server answered a 3xx; redirects are never followed.
-    #[error("Microsoft Graph server returned an unexpected redirect")]
     UnexpectedRedirect,
+}
+
+impl fmt::Display for MsgraphSendError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Send(err) => write!(f, "Microsoft Graph HTTP request failed: {err}"),
+            Self::SerializeRequest(err) => {
+                write!(f, "Microsoft Graph request serialization failed: {err}")
+            }
+            Self::ParseResponse(err) => write!(f, "Microsoft Graph response parsing failed: {err}"),
+            Self::ParseUrl(err) => write!(f, "Microsoft Graph URL parsing failed: {err}"),
+            Self::InvalidRequest(reason) => write!(f, "Invalid Microsoft Graph request: {reason}"),
+            Self::Api {
+                status,
+                code,
+                message,
+            } => write!(
+                f,
+                "Microsoft Graph API returned HTTP {status} ({code}): {message}"
+            ),
+            Self::UnexpectedRedirect => {
+                write!(f, "Microsoft Graph server returned an unexpected redirect")
+            }
+        }
+    }
+}
+
+impl Error for MsgraphSendError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Send(err) => Some(err),
+            Self::SerializeRequest(err) | Self::ParseResponse(err) => Some(err),
+            Self::ParseUrl(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<Http11SendError> for MsgraphSendError {
+    fn from(err: Http11SendError) -> Self {
+        Self::Send(err)
+    }
+}
+
+impl From<url::ParseError> for MsgraphSendError {
+    fn from(err: url::ParseError) -> Self {
+        Self::ParseUrl(err)
+    }
 }
 
 impl MsgraphSendError {
