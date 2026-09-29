@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "io-msgraph"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "base64",
