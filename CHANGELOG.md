@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added the `vcard` feature: `MsgraphContact::to_vcard`, `from_vcard`, `create_from_vcard` and `update_from_vcard` project a Graph contact onto a vCard 4.0 document and back.
+
+  Graph-only fields ride as read-only `X-MSGRAPH-*` properties, every other line round-trips through a stash extended property read back with `MSGRAPH_CONTACT_STASH_EXPAND`. The projection moved here from Cardamum, stash id included, so contacts Cardamum already stashed still read back.
+
 ## [0.4.0] - 2026-09-29
 
 ### Added

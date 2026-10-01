@@ -15,6 +15,8 @@ pub mod delta;
 pub mod get;
 pub mod list;
 pub mod update;
+#[cfg(feature = "vcard")]
+pub mod vcard;
 
 /// A contact in a contact folder. Doubles as the create/update body.
 ///
