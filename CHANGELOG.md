@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-01
+
+### Added
+
+- Added the `ical` feature: `MsgraphEvent::to_ical`, `to_ical_series`, `from_ical`, `create_from_ical` and `update_from_ical` project an event, or a series with its exceptions, onto an iCalendar document and back.
+
+  The recurrence maps onto an RRULE both ways, a rule Graph cannot hold being refused; cancelled occurrences become EXDATEs and exceptions VEVENTs with a RECURRENCE-ID. Windows zone names read as their CLDR IANA counterpart and every zone gets a VTIMEZONE, through ical-rs's `tzdb` feature. The UID and every unmanaged line ride a stash extended property, read back with `MSGRAPH_EVENT_STASH_EXPAND`. Only the series master is written back.
+
+- Added `MsgraphEvent::cancelled_occurrences`.
+
+- Added calendars and events: `calendars` (list, get, create, update, delete) and `events` (list, get, create, update, delete, the instances of a series, the calendar view and its delta), with `MsgraphCalendar`, `MsgraphEvent` and the recurrence, attendee and time types, and a client method each.
+
+  An event's times keep the zone Graph returns, a Windows or an IANA name; the calendar view and its delta expand series within a window, the events listing returns series masters.
+
+- Added `MsgraphContact::stashed_uid`, the vCard UID a contact's stash carries, for a sync engine to check that a write kept it.
+
+### Changed
+
+- The vCard UID rides the stash, so a contact keeps the UID it was written with. **Behaviour change.**
+
+  It used to be dropped on write and minted from the Graph id on read, which gave one person two identities across a sync. A contact with no stashed UID, created by Graph itself or by an earlier version, still reads back with one minted from its Graph id.
+
 ## [0.4.1] - 2026-10-01
 
 ### Added
@@ -74,7 +96,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added the contacts surface: contact folders and contacts, with delta.
 - Added `MsgraphClientStd` (`client` feature), a std blocking client with a `connect` constructor behind the TLS features.
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.1..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.2..HEAD
+[0.4.2]: https://github.com/pimalaya/io-msgraph/compare/v0.4.1..v0.4.2
 [0.4.1]: https://github.com/pimalaya/io-msgraph/compare/v0.4.0..v0.4.1
 [0.4.0]: https://github.com/pimalaya/io-msgraph/compare/v0.3.1..v0.4.0
 [0.3.1]: https://github.com/pimalaya/io-msgraph/compare/v0.3.0..v0.3.1

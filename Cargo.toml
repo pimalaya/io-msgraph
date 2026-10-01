@@ -1,7 +1,7 @@
 [package]
 name = "io-msgraph"
 description = "Microsoft Graph API client library for Rust"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["Clément DOUIN (soywod) <pimalaya.org@posteo.net>"]
 rust-version = "1.88"
 edition = "2024"
@@ -23,6 +23,7 @@ rustls-ring = ["client", "pimalaya-stream/rustls-ring", "dep:anyhow", "dep:pimal
 rustls-aws = ["client", "pimalaya-stream/rustls-aws", "dep:anyhow", "dep:pimalaya-stream"]
 native-tls = ["client", "pimalaya-stream/native-tls", "dep:anyhow", "dep:pimalaya-stream"]
 schemars = ["dep:schemars"]
+ical = ["dep:ical-rs", "dep:jiff"]
 vcard = ["dep:vcard-rs"]
 vendored = ["pimalaya-stream?/vendored"]
 
@@ -34,7 +35,9 @@ rustls-platform-verifier = "0.7"
 [dependencies]
 anyhow = { version = "1", optional = true }
 base64 = { version = "0.23", default-features = false, features = ["alloc"] }
+ical-rs = { version = "0.5.3", default-features = false, features = ["parser", "tzdb"], optional = true }
 io-http = { version = "0.5", default-features = false }
+jiff = { version = "0.2", default-features = false, features = ["alloc"], optional = true }
 log = { version = "0.4", default-features = false }
 pimalaya-stream = { version = "0.3", default-features = false, optional = true }
 schemars = { version = "1", optional = true, default-features = false, features = ["derive"] }

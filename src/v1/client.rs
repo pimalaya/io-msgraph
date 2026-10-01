@@ -53,6 +53,16 @@ use crate::{
     v1::rest::batch::{MsgraphBatch, MsgraphBatchRequest, MsgraphBatchResponses},
     v1::rest::users::{
         MsgraphUser,
+        calendars::{
+            MsgraphCalendar,
+            create::MsgraphCalendarCreate,
+            delete::MsgraphCalendarDelete,
+            get::MsgraphCalendarGet,
+            list::{
+                MsgraphCalendarsList, MsgraphCalendarsListParams, MsgraphCalendarsListResponse,
+            },
+            update::MsgraphCalendarUpdate,
+        },
         contact_folders::{
             MsgraphContactFolder,
             child_folders::MsgraphContactChildFoldersList,
@@ -73,6 +83,17 @@ use crate::{
             get::MsgraphContactGet,
             list::{MsgraphContactsList, MsgraphContactsListParams, MsgraphContactsListResponse},
             update::MsgraphContactUpdate,
+        },
+        events::{
+            MsgraphEvent,
+            calendar_view::MsgraphCalendarView,
+            create::MsgraphEventCreate,
+            delete::MsgraphEventDelete,
+            delta::{MsgraphEventsDelta, MsgraphEventsDeltaResponse},
+            get::MsgraphEventGet,
+            instances::MsgraphEventInstances,
+            list::{MsgraphEventsList, MsgraphEventsListParams, MsgraphEventsListResponse},
+            update::MsgraphEventUpdate,
         },
         get::MsgraphUserGet,
         mail_folders::{
@@ -604,6 +625,160 @@ impl MsgraphClientStd {
         link: &str,
     ) -> Result<MsgraphSendOutput<MsgraphContactsDeltaResponse>, MsgraphClientStdError> {
         let coroutine = MsgraphContactsDelta::from_link(&self.auth, link)?;
+        self.run(coroutine)
+    }
+
+    /// Lists the user's calendars.
+    pub fn calendars_list(
+        &mut self,
+        params: &MsgraphCalendarsListParams,
+    ) -> Result<MsgraphSendOutput<MsgraphCalendarsListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphCalendarsList::new(&self.auth, &self.user_id, params)?;
+        self.run(coroutine)
+    }
+
+    /// Gets the calendar `id`.
+    pub fn calendar_get(
+        &mut self,
+        id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphCalendar>, MsgraphClientStdError> {
+        let coroutine = MsgraphCalendarGet::new(&self.auth, &self.user_id, id)?;
+        self.run(coroutine)
+    }
+
+    /// Creates a calendar.
+    pub fn calendar_create(
+        &mut self,
+        calendar: &MsgraphCalendar,
+    ) -> Result<MsgraphSendOutput<MsgraphCalendar>, MsgraphClientStdError> {
+        let coroutine = MsgraphCalendarCreate::new(&self.auth, &self.user_id, calendar)?;
+        self.run(coroutine)
+    }
+
+    /// Patches the calendar `id`.
+    pub fn calendar_update(
+        &mut self,
+        id: &str,
+        calendar: &MsgraphCalendar,
+    ) -> Result<MsgraphSendOutput<MsgraphCalendar>, MsgraphClientStdError> {
+        let coroutine = MsgraphCalendarUpdate::new(&self.auth, &self.user_id, id, calendar)?;
+        self.run(coroutine)
+    }
+
+    /// Deletes the calendar `id`.
+    pub fn calendar_delete(
+        &mut self,
+        id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphNoResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphCalendarDelete::new(&self.auth, &self.user_id, id)?;
+        self.run(coroutine)
+    }
+
+    /// Lists the lone events and series masters of a calendar, the default
+    /// one when `calendar` is `None`.
+    pub fn events_list(
+        &mut self,
+        calendar: Option<&str>,
+        params: &MsgraphEventsListParams,
+    ) -> Result<MsgraphSendOutput<MsgraphEventsListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphEventsList::new(&self.auth, &self.user_id, calendar, params)?;
+        self.run(coroutine)
+    }
+
+    /// Continues an events listing from an `@odata.nextLink`.
+    pub fn events_list_from_link(
+        &mut self,
+        link: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphEventsListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphEventsList::from_link(&self.auth, link)?;
+        self.run(coroutine)
+    }
+
+    /// Gets the event `id`, selecting `select` and expanding `expand` when
+    /// given.
+    pub fn event_get(
+        &mut self,
+        id: &str,
+        select: Option<&str>,
+        expand: Option<&str>,
+    ) -> Result<MsgraphSendOutput<MsgraphEvent>, MsgraphClientStdError> {
+        let coroutine = MsgraphEventGet::new(&self.auth, &self.user_id, id, select, expand)?;
+        self.run(coroutine)
+    }
+
+    /// Creates an event in a calendar, the default one when `calendar` is
+    /// `None`.
+    pub fn event_create(
+        &mut self,
+        calendar: Option<&str>,
+        event: &MsgraphEvent,
+    ) -> Result<MsgraphSendOutput<MsgraphEvent>, MsgraphClientStdError> {
+        let coroutine = MsgraphEventCreate::new(&self.auth, &self.user_id, calendar, event)?;
+        self.run(coroutine)
+    }
+
+    /// Patches the event `id`.
+    pub fn event_update(
+        &mut self,
+        id: &str,
+        event: &MsgraphEvent,
+    ) -> Result<MsgraphSendOutput<MsgraphEvent>, MsgraphClientStdError> {
+        let coroutine = MsgraphEventUpdate::new(&self.auth, &self.user_id, id, event)?;
+        self.run(coroutine)
+    }
+
+    /// Deletes the event `id`, the whole series for a series master.
+    pub fn event_delete(
+        &mut self,
+        id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphNoResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphEventDelete::new(&self.auth, &self.user_id, id)?;
+        self.run(coroutine)
+    }
+
+    /// Lists the instances of the series master `id` within a window.
+    pub fn event_instances(
+        &mut self,
+        id: &str,
+        start: &str,
+        end: &str,
+        params: &MsgraphEventsListParams,
+    ) -> Result<MsgraphSendOutput<MsgraphEventsListResponse>, MsgraphClientStdError> {
+        let coroutine =
+            MsgraphEventInstances::new(&self.auth, &self.user_id, id, start, end, params)?;
+        self.run(coroutine)
+    }
+
+    /// Lists a calendar view, every event expanded within a window.
+    pub fn calendar_view(
+        &mut self,
+        calendar: Option<&str>,
+        start: &str,
+        end: &str,
+        params: &MsgraphEventsListParams,
+    ) -> Result<MsgraphSendOutput<MsgraphEventsListResponse>, MsgraphClientStdError> {
+        let coroutine =
+            MsgraphCalendarView::new(&self.auth, &self.user_id, calendar, start, end, params)?;
+        self.run(coroutine)
+    }
+
+    /// Starts a calendar view delta round over a window.
+    pub fn events_delta(
+        &mut self,
+        calendar: Option<&str>,
+        start: &str,
+        end: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphEventsDeltaResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphEventsDelta::new(&self.auth, &self.user_id, calendar, start, end)?;
+        self.run(coroutine)
+    }
+
+    /// Continues or restarts a calendar view delta round from a link.
+    pub fn events_delta_from_link(
+        &mut self,
+        link: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphEventsDeltaResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphEventsDelta::from_link(&self.auth, link)?;
         self.run(coroutine)
     }
 

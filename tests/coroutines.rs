@@ -783,3 +783,223 @@ fn query_pairs_rename_to_odata_options() {
     assert!(pairs.contains(&(String::from("includeHiddenFolders"), String::from("true"))));
     assert_eq!(pairs.len(), 2);
 }
+
+#[test]
+fn calendars_list_parses_value() {
+    use io_msgraph::v1::rest::users::calendars::list::{
+        MsgraphCalendarsList, MsgraphCalendarsListParams,
+    };
+
+    let body = r##"{ "value": [
+        { "id": "CAL1", "name": "Calendar", "isDefaultCalendar": true, "hexColor": "#ff0000" }
+    ] }"##;
+    let params = MsgraphCalendarsListParams::default();
+    let mut coroutine = MsgraphCalendarsList::new(&auth(), "me", &params).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let out = result.unwrap().response;
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/calendars"),
+        "got: {request}"
+    );
+    assert_eq!(out.value[0].id, "CAL1");
+    assert_eq!(out.value[0].name.as_deref(), Some("Calendar"));
+    assert_eq!(out.value[0].is_default_calendar, Some(true));
+}
+
+#[test]
+fn event_get_parses_a_series_master() {
+    use io_msgraph::v1::rest::users::events::{
+        MsgraphDayOfWeek, MsgraphEventType, MsgraphRecurrencePatternType,
+        MsgraphRecurrenceRangeType, get::MsgraphEventGet,
+    };
+
+    let body = r#"{
+        "id": "EV1",
+        "iCalUId": "040000008200E00074C5B7101A82E008",
+        "changeKey": "ck1",
+        "type": "seriesMaster",
+        "subject": "Stand-up",
+        "isAllDay": false,
+        "start": { "dateTime": "2026-08-14T09:00:00.0000000", "timeZone": "Romance Standard Time" },
+        "end": { "dateTime": "2026-08-14T09:15:00.0000000", "timeZone": "Romance Standard Time" },
+        "recurrence": {
+            "pattern": { "type": "weekly", "interval": 1, "daysOfWeek": ["monday", "friday"], "firstDayOfWeek": "monday" },
+            "range": { "type": "numbered", "startDate": "2026-08-14", "numberOfOccurrences": 10, "recurrenceTimeZone": "Romance Standard Time" }
+        },
+        "attendees": [
+            { "type": "required", "status": { "response": "accepted" }, "emailAddress": { "name": "Bob", "address": "bob@x.org" } }
+        ]
+    }"#;
+    let mut coroutine = MsgraphEventGet::new(&auth(), "me", "EV1", None, Some("x")).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let event = result.unwrap().response;
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/events/EV1?%24expand=x"),
+        "got: {request}"
+    );
+    assert_eq!(event.event_type, Some(MsgraphEventType::SeriesMaster));
+    assert_eq!(
+        event.ical_uid.as_deref(),
+        Some("040000008200E00074C5B7101A82E008")
+    );
+    let start = event.start.as_option().unwrap();
+    assert_eq!(start.time_zone.as_deref(), Some("Romance Standard Time"));
+    let recurrence = event.recurrence.as_option().unwrap();
+    assert_eq!(
+        recurrence.pattern.pattern_type,
+        Some(MsgraphRecurrencePatternType::Weekly)
+    );
+    assert_eq!(
+        recurrence.pattern.days_of_week,
+        [MsgraphDayOfWeek::Monday, MsgraphDayOfWeek::Friday]
+    );
+    assert_eq!(
+        recurrence.range.range_type,
+        Some(MsgraphRecurrenceRangeType::Numbered)
+    );
+    assert_eq!(recurrence.range.number_of_occurrences, Some(10));
+    assert_eq!(event.attendees.as_deref().unwrap().len(), 1);
+}
+
+#[test]
+fn event_create_posts_into_the_named_calendar() {
+    use io_msgraph::v1::rest::users::events::{MsgraphEvent, create::MsgraphEventCreate};
+
+    let event = MsgraphEvent {
+        subject: MsgraphField::Set("Lunch".into()),
+        ..Default::default()
+    };
+    let mut coroutine = MsgraphEventCreate::new(&auth(), "me", Some("CAL1"), &event).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 201 Created", r#"{ "id": "EV2" }"#),
+    );
+    assert_eq!(result.unwrap().response.id, "EV2");
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("POST /v1.0/me/calendars/CAL1/events"),
+        "got: {request}"
+    );
+    assert!(
+        request.ends_with(r#"{"subject":"Lunch"}"#),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn event_update_patches_only_what_is_set_or_cleared() {
+    use io_msgraph::v1::rest::users::events::{MsgraphEvent, update::MsgraphEventUpdate};
+
+    let event = MsgraphEvent {
+        subject: MsgraphField::Set("Lunch".into()),
+        location: MsgraphField::Null,
+        ..Default::default()
+    };
+    let mut coroutine = MsgraphEventUpdate::new(&auth(), "me", "EV2", &event).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 200 OK", r#"{ "id": "EV2" }"#),
+    );
+    assert!(result.is_ok());
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("PATCH /v1.0/me/events/EV2"),
+        "got: {request}"
+    );
+    assert!(
+        request.ends_with(r#"{"subject":"Lunch","location":null}"#),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn event_instances_and_calendar_view_carry_their_window() {
+    use io_msgraph::v1::rest::users::events::{
+        calendar_view::MsgraphCalendarView, instances::MsgraphEventInstances,
+        list::MsgraphEventsListParams,
+    };
+
+    let params = MsgraphEventsListParams::default();
+    let empty = json_response("HTTP/1.1 200 OK", r#"{ "value": [] }"#);
+
+    let mut coroutine = MsgraphEventInstances::new(
+        &auth(),
+        "me",
+        "EV1",
+        "2026-01-01T00:00:00Z",
+        "2027-01-01T00:00:00Z",
+        &params,
+    )
+    .unwrap();
+    let (result, written) = run(&mut coroutine, &empty);
+    assert!(result.is_ok());
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/events/EV1/instances?"),
+        "got: {request}"
+    );
+    assert!(
+        request.contains("startDateTime=2026-01-01T00%3A00%3A00Z"),
+        "got: {request}"
+    );
+    assert!(
+        request.contains("endDateTime=2027-01-01T00%3A00%3A00Z"),
+        "got: {request}"
+    );
+
+    let mut coroutine = MsgraphCalendarView::new(
+        &auth(),
+        "me",
+        Some("CAL1"),
+        "2026-01-01T00:00:00Z",
+        "2027-01-01T00:00:00Z",
+        &params,
+    )
+    .unwrap();
+    let (result, written) = run(&mut coroutine, &empty);
+    assert!(result.is_ok());
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/calendars/CAL1/calendarView?"),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn events_delta_parses_changes_and_removals() {
+    use io_msgraph::v1::rest::users::events::delta::MsgraphEventsDelta;
+
+    let body = r#"{
+        "value": [
+            { "id": "EV1", "seriesMasterId": "SM1", "type": "exception", "changeKey": "ck2" },
+            { "id": "EV3", "@removed": { "reason": "deleted" } }
+        ],
+        "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=abc"
+    }"#;
+    let mut coroutine = MsgraphEventsDelta::new(
+        &auth(),
+        "me",
+        None,
+        "2026-01-01T00:00:00Z",
+        "2027-01-01T00:00:00Z",
+    )
+    .unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let out = result.unwrap().response;
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/calendarView/delta?"),
+        "got: {request}"
+    );
+    assert_eq!(out.value[0].event.series_master_id.as_deref(), Some("SM1"));
+    assert!(out.value[0].removed.is_none());
+    assert_eq!(out.value[1].removed.as_ref().unwrap().reason, "deleted");
+    assert!(out.delta_link.unwrap().contains("deltatoken=abc"));
+}

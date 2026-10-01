@@ -97,16 +97,19 @@ const MINTED_PROPS: &[&str] = &[
 impl MsgraphContact {
     /// Projects an io-msgraph contact onto a fresh vCard 4.0 document.
     ///
-    /// The Graph id becomes the UID, the phone and address slots become typed
-    /// TEL and ADR properties (business work, home home, mobile cell), and
-    /// spouse and children become RELATED names, their types being standard in
-    /// vCard 4.0.
+    /// The UID is the one the stash carries ([`stashed_uid`]), else one minted
+    /// from the Graph id for a contact Graph created itself. The phone and
+    /// address slots become typed TEL and ADR properties (business work, home
+    /// home, mobile cell), and spouse and children become RELATED names, their
+    /// types being standard in vCard 4.0.
+    ///
+    /// [`stashed_uid`]: Self::stashed_uid
     pub fn to_vcard(&self) -> String {
         let contact = self;
         let mut card = VcardCst::v4();
 
         let id = contact.id.trim();
-        if !id.is_empty() {
+        if contact.stashed_uid().is_none() && !id.is_empty() {
             card.push(VcardProp::text(VcardPropKind::Uid, vec![], id));
         }
 
@@ -311,8 +314,9 @@ impl MsgraphContact {
     ///
     /// Graph keeps fixed slots even behind its collection-typed properties, so
     /// the first matching vCard property fills a slot and the extras fall to
-    /// the stash rather than into another slot. The UID is not read back: the
-    /// Graph id addresses the resource through the request path.
+    /// the stash rather than into another slot. Graph has no UID slot, so the
+    /// UID rides the stash too, which is what keeps a contact's identity
+    /// across a sync with another source.
     pub fn from_vcard(vcard: &str) -> Result<Self, MsgraphContactVcardError> {
         let card = VcardCst::parse(vcard).map_err(MsgraphContactVcardError::Parse)?;
         let version = card.version();
@@ -362,9 +366,6 @@ impl MsgraphContact {
                             .iter()
                             .any(|prop| raw_name.eq_ignore_ascii_case(prop))
                 }
-                // NOTE: the UID is managed: the Graph id addresses the
-                // resource through the request path.
-                Ok(VcardPropKind::Uid) => true,
                 Ok(VcardPropKind::Fn) => {
                     let name = FN::decode(line, version);
                     set_first(&mut display_name, &name.0)
@@ -852,6 +853,26 @@ fn set_first(slot: &mut Option<String>, value: impl AsRef<str>) -> bool {
     }
 }
 
+impl MsgraphContact {
+    /// The vCard UID the stash carries, `None` for a contact no vCard was
+    /// ever written to, Graph having no UID slot of its own.
+    ///
+    /// A sync engine checks it after a write: a server that dropped the
+    /// stash would hand the contact back with an identity minted from its
+    /// Graph id rather than the UID it was written under.
+    pub fn stashed_uid(&self) -> Option<String> {
+        stash_lines(self).iter().find_map(|line| {
+            let mut bytes = line.clone();
+            bytes.push_str("\r\n");
+            let (line, _) = VcardLine::take(bytes.as_bytes()).ok()?;
+            line.bare_name()
+                .eq_ignore_ascii_case("UID")
+                .then(|| line.raw_value_str().trim().to_string())
+                .filter(|uid| !uid.is_empty())
+        })
+    }
+}
+
 /// The stashed vCard remainder lines behind the contact's cardamum
 /// extended property (matched by name: Graph may normalize the GUID
 /// spelling in responses).
@@ -1263,5 +1284,33 @@ mod tests {
     fn the_expand_clause_names_the_stash() {
         let quoted = format!("'{MSGRAPH_CONTACT_STASH_ID}'");
         assert!(MSGRAPH_CONTACT_STASH_EXPAND.contains(&quoted));
+    }
+
+    #[test]
+    fn a_vcard_uid_rides_the_stash_and_wins_over_the_graph_id() {
+        let vcard = "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:urn:uuid:4fbe8971\r\n\
+            FN:Jane Doe\r\nEND:VCARD\r\n";
+
+        let mut contact = MsgraphContact::create_from_vcard(vcard).unwrap();
+        // NOTE: what Graph hands back after the create: its own id, and the
+        // stash it was given.
+        contact.id = "AAMkAGI2".into();
+
+        assert_eq!(contact.stashed_uid().as_deref(), Some("urn:uuid:4fbe8971"));
+        let vcard = contact.to_vcard();
+        assert!(vcard.contains("UID:urn:uuid:4fbe8971\r\n"));
+        assert!(!vcard.contains("UID:AAMkAGI2"));
+    }
+
+    #[test]
+    fn a_contact_graph_created_mints_its_uid_from_the_graph_id() {
+        let contact = MsgraphContact {
+            id: "AAMkAGI2".into(),
+            display_name: MsgraphField::Set("Jane Doe".into()),
+            ..Default::default()
+        };
+
+        assert_eq!(contact.stashed_uid(), None);
+        assert!(contact.to_vcard().contains("UID:AAMkAGI2\r\n"));
     }
 }
