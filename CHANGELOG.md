@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `to_ical` writing an event in UTC: Graph answers a read in UTC, so a series created in Europe/Paris read back anchored on UTC and drifted by an hour at each DST change once expanded. `MSGRAPH_EVENT_ICAL_SELECT` now selects `originalStartTimeZone` and `originalEndTimeZone`, and the projection tells a UTC start and end in that zone when the database knows it.
+
+- Fixed `from_ical` dropping an edited DESCRIPTION: a document read from Graph carries Exchange's HTML body as `X-ALT-DESC` beside the text, and the HTML always won, so `update_from_ical` saw no change and left the edit out of the patch. The HTML now wins only while it says what the text says.
+
 ## [0.4.2] - 2026-10-01
 
 ### Added

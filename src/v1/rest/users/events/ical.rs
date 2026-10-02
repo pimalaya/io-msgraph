@@ -96,11 +96,13 @@ pub const MSGRAPH_EVENT_STASH_EXPAND: &str = "singleValueExtendedProperties($fil
 
 /// The `$select` of a read the projection is fed from: every property it
 /// reads, `cancelledOccurrences` among them, which Graph returns only
-/// selected.
+/// selected, and the zones an event was created in, which give back the
+/// wall time Graph answers in UTC.
 pub const MSGRAPH_EVENT_ICAL_SELECT: &str = "id,iCalUId,changeKey,createdDateTime,\
-     lastModifiedDateTime,type,seriesMasterId,originalStart,subject,body,start,end,isAllDay,\
-     location,recurrence,attendees,organizer,categories,showAs,sensitivity,importance,\
-     isReminderOn,reminderMinutesBeforeStart,isCancelled,webLink,cancelledOccurrences";
+     lastModifiedDateTime,type,seriesMasterId,originalStart,originalStartTimeZone,\
+     originalEndTimeZone,subject,body,start,end,isAllDay,location,recurrence,attendees,\
+     organizer,categories,showAs,sensitivity,importance,isReminderOn,\
+     reminderMinutesBeforeStart,isCancelled,webLink,cancelledOccurrences";
 
 /// Product identifier the synthesized document carries.
 const PRODID: &str = "-//Pimalaya//io-msgraph//EN";
@@ -129,7 +131,12 @@ impl MsgraphEvent {
     /// document, the exceptions as VEVENTs carrying the master's UID and a
     /// RECURRENCE-ID.
     pub fn to_ical_series(&self, exceptions: &[&MsgraphEvent]) -> String {
-        let master = self;
+        let master = localized(self);
+        let master = &*master;
+        let exceptions: Vec<Cow<'_, MsgraphEvent>> = exceptions
+            .iter()
+            .map(|exception| localized(exception))
+            .collect();
         let uid = master
             .stashed_uid()
             .or_else(|| master.ical_uid.clone())
@@ -137,7 +144,7 @@ impl MsgraphEvent {
 
         let mut zones = BTreeSet::new();
         let mut events = vec![vevent(master, None, &uid, &mut zones)];
-        for exception in exceptions {
+        for exception in &exceptions {
             events.push(vevent(exception, Some(master), &uid, &mut zones));
         }
 
@@ -328,6 +335,14 @@ impl MsgraphEvent {
         event.end = MsgraphField::Set(end.into_graph());
 
         event.body = match (html, description) {
+            // NOTE: the text is what an editor changes, so an HTML copy
+            // it no longer matches is stale and must not win.
+            (Some(html), Some(content)) if !same_text(&strip_html(&html), &content) => {
+                MsgraphField::Set(MsgraphItemBody {
+                    content_type: Some(MsgraphBodyType::Text),
+                    content: Some(content),
+                })
+            }
             (Some(content), _) => MsgraphField::Set(MsgraphItemBody {
                 content_type: Some(MsgraphBodyType::Html),
                 content: Some(content),
@@ -683,6 +698,75 @@ fn vevent(
     }
 
     vevent
+}
+
+/// The event with a UTC start and end told back in the zones it was
+/// created in.
+///
+/// Graph answers a read in UTC unless the request names a zone, and keeps
+/// the creation zones as `originalStartTimeZone` and `originalEndTimeZone`.
+/// Left in UTC, a series anchored on a wall time drifts by an hour at each
+/// DST change once expanded. All-day boundaries are dates, and a zone the
+/// database does not know stays UTC.
+fn localized(event: &MsgraphEvent) -> Cow<'_, MsgraphEvent> {
+    if event.is_all_day.as_option() == Some(&true) {
+        return Cow::Borrowed(event);
+    }
+
+    let start = local_boundary(
+        event.start.as_option(),
+        event.original_start_time_zone.as_deref(),
+    );
+    let end = local_boundary(
+        event.end.as_option(),
+        event.original_end_time_zone.as_deref(),
+    );
+
+    if start.is_none() && end.is_none() {
+        return Cow::Borrowed(event);
+    }
+
+    let mut event = event.clone();
+    if let Some(start) = start {
+        event.start = MsgraphField::Set(start);
+    }
+    if let Some(end) = end {
+        event.end = MsgraphField::Set(end);
+    }
+
+    Cow::Owned(event)
+}
+
+/// A UTC boundary as the wall time of `original`, `None` when it is not
+/// UTC or `original` is no IANA zone.
+fn local_boundary(
+    boundary: Option<&MsgraphDateTimeTimeZone>,
+    original: Option<&str>,
+) -> Option<MsgraphDateTimeTimeZone> {
+    let boundary = boundary?;
+    if !matches!(zone(boundary.time_zone.as_deref()), Zone::Utc) {
+        return None;
+    }
+    let Zone::Iana(name) = zone(original) else {
+        return None;
+    };
+
+    let utc = boundary
+        .date_time
+        .split('.')
+        .next()?
+        .parse::<DateTime>()
+        .ok()?;
+    let local = utc
+        .to_zoned(TimeZone::UTC)
+        .ok()?
+        .with_time_zone(TimeZone::get(&name).ok()?)
+        .datetime();
+
+    Some(MsgraphDateTimeTimeZone {
+        date_time: local.strftime("%Y-%m-%dT%H:%M:%S").to_string(),
+        time_zone: Some(name),
+    })
 }
 
 /// How Graph names a zone, resolved for iCalendar.
@@ -1321,6 +1405,12 @@ fn strip_html(html: &str) -> String {
         .to_owned()
 }
 
+/// Whether two texts say the same once their whitespace is collapsed, so
+/// line endings and indentation the HTML source carried do not count.
+fn same_text(left: &str, right: &str) -> bool {
+    left.split_whitespace().eq(right.split_whitespace())
+}
+
 /// The stashed lines behind the event's extended property, matched by name.
 fn stash_lines(event: &MsgraphEvent) -> Vec<String> {
     event
@@ -1777,6 +1867,108 @@ mod tests {
         assert!(patch.recurrence.is_unset());
         assert!(patch.attendees.is_unset());
         assert!(patch.single_value_extended_properties.is_unset());
+    }
+
+    /// A read Graph answered in UTC, as it does unless asked for a zone.
+    fn utc_read() -> MsgraphEvent {
+        let utc = |date_time: &str| {
+            MsgraphField::Set(MsgraphDateTimeTimeZone {
+                date_time: date_time.into(),
+                time_zone: Some("UTC".into()),
+            })
+        };
+
+        MsgraphEvent {
+            id: "E1".into(),
+            start: utc("2030-01-10T09:00:00.0000000"),
+            end: utc("2030-01-10T10:00:00.0000000"),
+            is_all_day: MsgraphField::Set(false),
+            original_start_time_zone: Some("Romance Standard Time".into()),
+            original_end_time_zone: Some("Romance Standard Time".into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_utc_read_is_told_in_its_original_zone() {
+        let ical = utc_read().to_ical();
+
+        assert!(
+            ical.contains("DTSTART;TZID=Europe/Paris:20300110T100000\r\n"),
+            "{ical}"
+        );
+        assert!(
+            ical.contains("DTEND;TZID=Europe/Paris:20300110T110000\r\n"),
+            "{ical}"
+        );
+        assert!(
+            ical.contains("BEGIN:VTIMEZONE\r\nTZID:Europe/Paris\r\n"),
+            "{ical}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_original_zone_stays_utc() {
+        let mut event = utc_read();
+        event.original_start_time_zone = Some("tzone://Microsoft/Custom".into());
+        event.original_end_time_zone = Some("tzone://Microsoft/Custom".into());
+
+        let ical = event.to_ical();
+
+        assert!(ical.contains("DTSTART:20300110T090000Z\r\n"), "{ical}");
+    }
+
+    #[test]
+    fn an_all_day_read_keeps_its_dates() {
+        let mut event = utc_read();
+        event.is_all_day = MsgraphField::Set(true);
+        event.start = MsgraphField::Set(MsgraphDateTimeTimeZone {
+            date_time: "2030-01-10T00:00:00.0000000".into(),
+            time_zone: Some("UTC".into()),
+        });
+        event.end = MsgraphField::Set(MsgraphDateTimeTimeZone {
+            date_time: "2030-01-11T00:00:00.0000000".into(),
+            time_zone: Some("UTC".into()),
+        });
+
+        let ical = event.to_ical();
+
+        assert!(ical.contains("DTSTART;VALUE=DATE:20300110\r\n"), "{ical}");
+    }
+
+    /// A read whose text body Exchange turned into HTML, as it always does.
+    fn html_read() -> String {
+        let mut event = utc_read();
+        event.body = MsgraphField::Set(MsgraphItemBody {
+            content_type: Some(MsgraphBodyType::Html),
+            content: Some(
+                "<html><body>\r\n<div class=\"PlainText\">old notes</div>\r\n</body></html>".into(),
+            ),
+        });
+        event.to_ical()
+    }
+
+    #[test]
+    fn an_untouched_description_keeps_the_html() {
+        let read = html_read();
+
+        let event = MsgraphEvent::from_ical(read.as_bytes()).unwrap();
+
+        let body = event.body.as_option().unwrap();
+        assert_eq!(body.content_type, Some(MsgraphBodyType::Html));
+    }
+
+    #[test]
+    fn an_edited_description_beats_its_stale_html() {
+        let read = html_read();
+        let edited = read.replace("DESCRIPTION:old notes", "DESCRIPTION:new notes");
+        assert_ne!(edited, read, "the document carries the stripped text");
+
+        let patch = MsgraphEvent::update_from_ical(edited.as_bytes(), read.as_bytes()).unwrap();
+
+        let body = patch.body.as_option().expect("the edit reaches the patch");
+        assert_eq!(body.content_type, Some(MsgraphBodyType::Text));
+        assert_eq!(body.content.as_deref(), Some("new notes"));
     }
 
     #[test]

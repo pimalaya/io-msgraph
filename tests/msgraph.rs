@@ -1,14 +1,36 @@
-//! End-to-end Microsoft Graph API tests.
+//! Live tests against Microsoft Graph: mail, contacts and calendars.
 //!
-//! Requires an OAuth 2.0 access token with mail read/write/send scopes
-//! for the mail test, and Contacts.ReadWrite for the contacts test:
+//! Graph only accepts an OAuth 2.0 Bearer token. A token minted by hand
+//! (delegated, `me` by default) dies within the hour:
 //!
 //! ```sh
-//! MSGRAPH_ACCESS_TOKEN="<token>" \
-//! cargo test --test msgraph -- --include-ignored --nocapture
+//! MSGRAPH_ACCESS_TOKEN="eyJ0..." \
+//! cargo test --features ical,vcard --test msgraph -- --ignored
 //! ```
 //!
-//! `MSGRAPH_USER_ID` is optional and defaults to `me`.
+//! An app registration with a client secret instead mints its own token
+//! through the client credentials grant, which is what makes an
+//! unattended run possible. The tests then act app-only on one mailbox,
+//! `MSGRAPH_USER_ID` (`microsoft@pimalaya.onmicrosoft.com` by default,
+//! the Pimalaya test mailbox):
+//!
+//! ```sh
+//! MSGRAPH_TENANT_ID=… MSGRAPH_CLIENT_ID=… MSGRAPH_CLIENT_SECRET=… \
+//! cargo test --features ical,vcard --test msgraph -- --ignored
+//! ```
+//!
+//! The app needs the Graph application permissions `Mail.ReadWrite`,
+//! `Mail.Send`, `Contacts.ReadWrite`, `Calendars.ReadWrite` and
+//! `User.Read.All`, admin consent granted.
+//!
+//! [`account`] only reads. [`mail`], [`contacts`] and [`calendars`]
+//! walk the CRUD surface inside a throwaway folder or calendar that
+//! [`with_cleanup`] deletes however the run ends; the messages sent to
+//! the mailbox itself land in its inbox and sent items, and the cleanup
+//! sweeps them by subject. With the `ical` and `vcard` features,
+//! [`ical`] and [`vcard`] round-trip an event and a contact through the
+//! projections. Every resource a run creates is named
+//! `io-msgraph-test-<millis>`, and nothing else is ever written.
 
 #![cfg(any(
     feature = "rustls-ring",
@@ -16,17 +38,27 @@
     feature = "native-tls"
 ))]
 
+use core::fmt::Debug;
 use std::{
+    borrow::Cow,
     env,
-    time::{SystemTime, UNIX_EPOCH},
+    panic::{self, AssertUnwindSafe},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use io_msgraph::v1::{
     client::{MsgraphClientStd, MsgraphClientStdConnectOptions},
     field::MsgraphField,
     rest::users::{
+        calendars::MsgraphCalendar,
         contact_folders::MsgraphContactFolder,
         contacts::{MsgraphContact, list::MsgraphContactsListParams},
+        events::{
+            MsgraphDateTimeTimeZone, MsgraphDayOfWeek, MsgraphEvent, MsgraphPatternedRecurrence,
+            MsgraphRecurrencePattern, MsgraphRecurrencePatternType, MsgraphRecurrenceRange,
+            MsgraphRecurrenceRangeType,
+        },
         mail_folders::MsgraphMailFolder,
         messages::{
             MsgraphBodyType, MsgraphEmailAddress, MsgraphItemBody, MsgraphMessage,
@@ -34,331 +66,1244 @@ use io_msgraph::v1::{
         },
     },
 };
+use io_oauth::{client::Oauth20ClientStd, rfc6749::client_credentials::*};
+use pimalaya_stream::tls::Tls;
+use secrecy::{ExposeSecret, SecretString};
+use url::Url;
+
+/// The scope of an app-only Graph token: every application permission
+/// the app was granted.
+const GRAPH_SCOPE: &str = "https://graph.microsoft.com/.default";
+
+/// The Pimalaya test mailbox an app-only run acts on.
+const DEFAULT_USER: &str = "microsoft@pimalaya.onmicrosoft.com";
+
+/// The window every calendar test works in, far enough ahead that no
+/// real appointment of the mailbox falls in it.
+const WINDOW_START: &str = "2030-01-01T00:00:00Z";
+const WINDOW_END: &str = "2030-02-01T00:00:00Z";
+
+/// How long a step waits for Graph to reflect a write it already
+/// acknowledged.
+const SETTLE: Duration = Duration::from_secs(120);
 
 #[test]
-#[ignore = "requires MSGRAPH_ACCESS_TOKEN env var and --include-ignored"]
-fn msgraph() {
-    env_logger::try_init().ok();
-
-    let token = env::var("MSGRAPH_ACCESS_TOKEN").expect("MSGRAPH_ACCESS_TOKEN not set");
-    let user_id = env::var("MSGRAPH_USER_ID").unwrap_or_else(|_| String::from("me"));
-
-    let options = MsgraphClientStdConnectOptions {
-        user_id,
-        ..Default::default()
-    };
-    let mut client = MsgraphClientStd::connect(token, options).expect("connect");
-
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-    let folder_name = format!("io-msgraph-test-{ts}");
-
-    // NOTE: ── me ──
+#[ignore = "requires Graph credentials and --ignored"]
+fn account() {
+    let mut client = connect();
 
     let me = client.me().expect("me").response;
     let address = me
         .mail
         .clone()
         .or_else(|| me.user_principal_name.clone())
-        .expect("user must expose an email address");
-    assert!(!address.is_empty());
-
-    // NOTE: ── mail folders list (baseline) ──
+        .expect("the mailbox exposes an address");
+    assert!(address.contains('@'));
 
     let folders = client
         .mail_folders_list(&Default::default())
         .expect("mail folders list")
         .response;
+    assert!(!folders.value.is_empty(), "a mailbox has mail folders");
+
+    let calendars = client
+        .calendars_list(&Default::default())
+        .expect("calendars list")
+        .response;
     assert!(
-        !folders.value.is_empty(),
-        "mailbox should expose at least one mail folder"
+        calendars
+            .value
+            .iter()
+            .any(|calendar| calendar.is_default_calendar == Some(true)),
+        "a mailbox has a default calendar"
     );
 
-    // NOTE: ── mail folder create ──
+    client
+        .contact_folders_list(&Default::default())
+        .expect("contact folders list");
+}
 
-    let new_folder = MsgraphMailFolder {
-        display_name: folder_name.clone(),
-        ..Default::default()
-    };
+#[test]
+#[ignore = "requires Graph credentials and --ignored"]
+fn mail() {
+    let mut client = connect();
+    let name = format!("io-msgraph-test-{}", unix_millis());
+    let address = address(&mut client);
+
     let folder = client
-        .mail_folder_create(&new_folder)
+        .mail_folder_create(&MsgraphMailFolder {
+            display_name: name.clone(),
+            ..Default::default()
+        })
         .expect("mail folder create")
         .response;
-    let folder_id = folder.id.clone();
-    assert_eq!(folder.display_name, folder_name);
+    assert_eq!(folder.display_name, name);
+    let folder_id = folder.id;
+    let sent_subject = format!("{name} sent");
 
-    // NOTE: ── mail folder get (verify creation) ──
+    with_cleanup(
+        &mut client,
+        |client| {
+            mail_folders(client, &folder_id, &name);
+            messages(client, &folder_id, &name, &address);
+            messages_delta(client, &folder_id, &name);
+            send(client, &address, &sent_subject);
+        },
+        |client| {
+            sweep(client, &sent_subject);
+            if let Err(err) = client.mail_folder_delete(&folder_id) {
+                report_leftover("mail folder", &folder_id, &err);
+            }
+        },
+    );
+}
 
+#[test]
+#[ignore = "requires Graph credentials and --ignored"]
+fn contacts() {
+    let mut client = connect();
+    let name = format!("io-msgraph-test-{}", unix_millis());
+
+    let folder_id = contact_folder_create(&mut client, &name);
+
+    with_cleanup(
+        &mut client,
+        |client| {
+            contact_folders(client, &folder_id, &name);
+            contact_crud(client, &folder_id, &name);
+            contacts_delta(client, &folder_id, &name);
+        },
+        |client| {
+            if let Err(err) = client.contact_folder_delete(&folder_id) {
+                report_leftover("contact folder", &folder_id, &err);
+            }
+        },
+    );
+}
+
+#[test]
+#[ignore = "requires Graph credentials and --ignored"]
+fn calendars() {
+    let mut client = connect();
+    let name = format!("io-msgraph-test-{}", unix_millis());
+
+    let calendar_id = calendar_create(&mut client, &name);
+
+    with_cleanup(
+        &mut client,
+        |client| {
+            calendar_metadata(client, &calendar_id, &name);
+            single_event(client, &calendar_id, &name);
+            recurring_event(client, &calendar_id, &name);
+            events_delta(client, &calendar_id, &name);
+        },
+        |client| {
+            if let Err(err) = client.calendar_delete(&calendar_id) {
+                report_leftover("calendar", &calendar_id, &err);
+            }
+        },
+    );
+}
+
+#[cfg(feature = "ical")]
+#[test]
+#[ignore = "requires Graph credentials and --ignored"]
+fn ical() {
+    use io_msgraph::v1::rest::users::events::ical::{
+        MSGRAPH_EVENT_ICAL_SELECT, MSGRAPH_EVENT_STASH_EXPAND,
+    };
+
+    let mut client = connect();
+    let name = format!("io-msgraph-test-{}", unix_millis());
+    let uid = format!("{name}@pimalaya.org");
+
+    let calendar_id = calendar_create(&mut client, &name);
+
+    with_cleanup(
+        &mut client,
+        |client| {
+            let document = ical_document(&uid, &name, true);
+            let written =
+                MsgraphEvent::create_from_ical(document.as_bytes()).expect("the document projects");
+            let created = client
+                .event_create(Some(&calendar_id), &written)
+                .expect("event create")
+                .response;
+
+            let fetched = client
+                .event_get(
+                    &created.id,
+                    Some(MSGRAPH_EVENT_ICAL_SELECT),
+                    Some(MSGRAPH_EVENT_STASH_EXPAND),
+                )
+                .expect("event get")
+                .response;
+            assert_eq!(
+                fetched.stashed_uid().as_deref(),
+                Some(uid.as_str()),
+                "the UID rides the stash"
+            );
+            let read = fetched.to_ical();
+            assert!(
+                read.contains("X-PIMALAYA-TEST:kept verbatim"),
+                "the stash restores the unmanaged lines:\n{read}"
+            );
+            assert_same_event(&document, &read);
+
+            let edited = ical_document(&uid, &format!("{name} renamed"), false);
+            let patch = MsgraphEvent::update_from_ical(edited.as_bytes(), read.as_bytes())
+                .expect("the edited document projects");
+            client
+                .event_update(&created.id, &patch)
+                .expect("event update");
+
+            let refetched = client
+                .event_get(
+                    &created.id,
+                    Some(MSGRAPH_EVENT_ICAL_SELECT),
+                    Some(MSGRAPH_EVENT_STASH_EXPAND),
+                )
+                .expect("event get after update")
+                .response;
+            let reread = refetched.to_ical();
+            assert_same_event(&edited, &reread);
+
+            // NOTE: what an editor does to a document read from Graph:
+            // the text changes, the X-ALT-DESC beside it does not.
+            let annotated = reread.replace(
+                "DESCRIPTION:written by the io-msgraph suite",
+                "DESCRIPTION:annotated by hand",
+            );
+            assert_ne!(annotated, reread, "the read document carries the text");
+            let patch = MsgraphEvent::update_from_ical(annotated.as_bytes(), reread.as_bytes())
+                .expect("the annotated document projects");
+            client
+                .event_update(&created.id, &patch)
+                .expect("event update of the description");
+
+            let annotated_read = client
+                .event_get(
+                    &created.id,
+                    Some(MSGRAPH_EVENT_ICAL_SELECT),
+                    Some(MSGRAPH_EVENT_STASH_EXPAND),
+                )
+                .expect("event get after the description update")
+                .response
+                .to_ical();
+            assert_eq!(
+                description(&annotated_read),
+                Some("annotated by hand"),
+                "the edited text reaches Graph:\n{annotated_read}"
+            );
+        },
+        |client| {
+            if let Err(err) = client.calendar_delete(&calendar_id) {
+                report_leftover("calendar", &calendar_id, &err);
+            }
+        },
+    );
+}
+
+#[cfg(feature = "vcard")]
+#[test]
+#[ignore = "requires Graph credentials and --ignored"]
+fn vcard() {
+    use io_msgraph::v1::rest::users::contacts::vcard::MSGRAPH_CONTACT_STASH_EXPAND;
+
+    let mut client = connect();
+    let name = format!("io-msgraph-test-{}", unix_millis());
+    let uid = format!("urn:uuid:{name}");
+
+    let folder_id = contact_folder_create(&mut client, &name);
+
+    with_cleanup(
+        &mut client,
+        |client| {
+            let document = vcard_document(&uid, &name, true);
+            let written = MsgraphContact::create_from_vcard(&document).expect("the vCard projects");
+            let created = client
+                .contact_create(Some(&folder_id), &written)
+                .expect("contact create")
+                .response;
+
+            let fetched = client
+                .contact_get(&created.id, Some(MSGRAPH_CONTACT_STASH_EXPAND))
+                .expect("contact get")
+                .response;
+            assert_eq!(
+                fetched.stashed_uid().as_deref(),
+                Some(uid.as_str()),
+                "the UID rides the stash"
+            );
+            let read = fetched.to_vcard();
+            assert!(
+                read.contains("X-PIMALAYA-TEST:kept verbatim"),
+                "the stash restores the unmanaged lines:\n{read}"
+            );
+            assert_same_contact(&document, &read);
+
+            let edited = vcard_document(&uid, &format!("{name} renamed"), false);
+            let patch = MsgraphContact::update_from_vcard(&edited, &read)
+                .expect("the edited vCard projects");
+            client
+                .contact_update(&created.id, &patch)
+                .expect("contact update");
+
+            let refetched = client
+                .contact_get(&created.id, Some(MSGRAPH_CONTACT_STASH_EXPAND))
+                .expect("contact get after update")
+                .response;
+            assert_same_contact(&edited, &refetched.to_vcard());
+        },
+        |client| {
+            if let Err(err) = client.contact_folder_delete(&folder_id) {
+                report_leftover("contact folder", &folder_id, &err);
+            }
+        },
+    );
+}
+
+/// The mail folder surface: get, rename, and a child folder moved and
+/// copied in, all inside the test folder.
+fn mail_folders(client: &mut MsgraphClientStd, folder_id: &str, name: &str) {
     let fetched = client
-        .mail_folder_get(&folder_id)
+        .mail_folder_get(folder_id)
         .expect("mail folder get")
         .response;
-    assert_eq!(fetched.display_name, folder_name);
+    assert_eq!(fetched.display_name, name);
 
-    // NOTE: ── message create (draft in the new folder) ──
+    let renamed = format!("{name} renamed");
+    let updated = client
+        .mail_folder_update(
+            folder_id,
+            &MsgraphMailFolder {
+                display_name: renamed.clone(),
+                ..Default::default()
+            },
+        )
+        .expect("mail folder update")
+        .response;
+    assert_eq!(updated.display_name, renamed);
 
-    let subject = format!("io-msgraph test {ts}");
+    // NOTE: Exchange refuses a copy into the folder already holding the
+    // original (ErrorMoveCopyFailed), so a grandchild is copied up one
+    // level instead.
+    let child = mail_folder_nest(client, &format!("{name} child"), folder_id);
+    let grandchild = mail_folder_nest(client, &format!("{name} grandchild"), &child);
+    client
+        .mail_folder_copy(&grandchild, folder_id)
+        .expect("mail folder copy");
+
+    let children = client
+        .mail_child_folders_list(folder_id, &Default::default())
+        .expect("mail child folders list")
+        .response;
+    assert_eq!(
+        children.value.len(),
+        2,
+        "the child and the grandchild's copy: {children:?}"
+    );
+}
+
+/// Creates a mail folder under `parent`, returning its id.
+///
+/// A folder can only be created at the root, so it is created there and
+/// moved in at once; should the move fail, it is deleted rather than
+/// left at the root of the mailbox.
+fn mail_folder_nest(client: &mut MsgraphClientStd, name: &str, parent: &str) -> String {
+    let folder = client
+        .mail_folder_create(&MsgraphMailFolder {
+            display_name: String::from(name),
+            ..Default::default()
+        })
+        .expect("mail folder create")
+        .response;
+
+    match client.mail_folder_move(&folder.id, parent) {
+        Ok(moved) => moved.response.id,
+        Err(err) => {
+            if let Err(err) = client.mail_folder_delete(&folder.id) {
+                report_leftover("mail folder", &folder.id, &err);
+            }
+            panic!("mail folder move: {err:?}");
+        }
+    }
+}
+
+/// The message surface inside the test folder: drafts in JSON and MIME,
+/// reads, a patch, attachments, a copy and a move.
+fn messages(client: &mut MsgraphClientStd, folder_id: &str, name: &str, address: &str) {
+    let subject = format!("{name} draft");
     let draft = MsgraphMessage {
         subject: Some(subject.clone()),
         body: Some(MsgraphItemBody {
             content_type: Some(MsgraphBodyType::Text),
             content: Some(String::from("hello from io-msgraph")),
         }),
-        to_recipients: vec![MsgraphRecipient {
-            email_address: MsgraphEmailAddress {
-                name: None,
-                address: Some(address.clone()),
-            },
-        }],
+        to_recipients: vec![recipient(address)],
         ..Default::default()
     };
     let message = client
-        .message_create(Some(&folder_id), &draft)
+        .message_create(Some(folder_id), &draft)
         .expect("message create")
         .response;
-    let message_id = message.id.clone();
     assert_eq!(message.subject.as_deref(), Some(subject.as_str()));
 
-    // NOTE: ── message get ──
-
     let fetched = client
-        .message_get(&message_id)
+        .message_get(&message.id)
         .expect("message get")
         .response;
     assert_eq!(fetched.subject.as_deref(), Some(subject.as_str()));
 
-    // NOTE: ── message get raw (mime) ──
-
     let raw = client
-        .message_get_raw(&message_id)
+        .message_get_raw(&message.id)
         .expect("message get raw")
         .response;
-    assert!(!raw.is_empty(), "raw MIME should not be empty");
+    let raw = String::from_utf8_lossy(&raw);
+    assert!(raw.contains(&subject), "the MIME carries the subject");
 
-    // NOTE: ── message update (mark read) ──
-
-    let patch = MsgraphMessage {
-        is_read: Some(true),
-        ..Default::default()
-    };
     let updated = client
-        .message_update(&message_id, &patch)
+        .message_update(
+            &message.id,
+            &MsgraphMessage {
+                is_read: Some(true),
+                ..Default::default()
+            },
+        )
         .expect("message update")
         .response;
     assert_eq!(updated.is_read, Some(true));
 
-    // NOTE: ── messages list (in the new folder) ──
-
-    let params = MsgraphMessagesListParams {
-        top: Some(10),
-        ..Default::default()
-    };
-    let listed = client
-        .messages_list(Some(&folder_id), &params)
-        .expect("messages list")
+    let attachment = client
+        .attachment_create(
+            &message.id,
+            "io-msgraph.txt",
+            b"attached by io-msgraph",
+            Some("text/plain"),
+        )
+        .expect("attachment create")
         .response;
-    assert!(
-        listed.value.iter().any(|m| m.id == message_id),
-        "listing should contain the created message"
-    );
+    let attachments = client
+        .attachments_list(&message.id)
+        .expect("attachments list")
+        .response;
+    assert!(attachments.value.iter().any(|a| a.id == attachment.id));
+    let content = client
+        .attachment_get_raw(&message.id, &attachment.id)
+        .expect("attachment get raw")
+        .response;
+    assert_eq!(content, b"attached by io-msgraph");
+    client
+        .attachment_delete(&message.id, &attachment.id)
+        .expect("attachment delete");
 
-    // NOTE: ── message copy then move ──
+    let mime_subject = format!("{name} mime");
+    let mime = format!(
+        "From: {address}\r\nTo: {address}\r\nSubject: {mime_subject}\r\n\r\nimported by io-msgraph\r\n"
+    );
+    let imported = client
+        .message_create_mime(Some(folder_id), mime.as_bytes())
+        .expect("message create mime")
+        .response;
+    assert_eq!(imported.subject.as_deref(), Some(mime_subject.as_str()));
 
     let copy = client
-        .message_copy(&message_id, "drafts")
+        .message_copy(&message.id, folder_id)
         .expect("message copy")
         .response;
     let moved = client
-        .message_move(&copy.id, "deleteditems")
+        .message_move(&copy.id, "drafts")
         .expect("message move")
         .response;
+    client
+        .message_move(&moved.id, folder_id)
+        .expect("message move back");
 
-    // NOTE: ── message delete (original + the moved copy) ──
+    let listed = client
+        .messages_list(
+            Some(folder_id),
+            &MsgraphMessagesListParams {
+                top: Some(10),
+                ..Default::default()
+            },
+        )
+        .expect("messages list")
+        .response;
+    assert_eq!(
+        listed.value.len(),
+        3,
+        "the draft, the MIME import and the copy"
+    );
 
-    client.message_delete(&message_id).expect("message delete");
-    client.message_delete(&moved.id).expect("moved copy delete");
+    client.message_delete(&imported.id).expect("message delete");
+}
 
-    // NOTE: ── mail folder delete (cleanup) ──
+/// One delta round over the test folder, then a change caught by the
+/// next round from its delta link.
+fn messages_delta(client: &mut MsgraphClientStd, folder_id: &str, name: &str) {
+    let mut page = client
+        .messages_delta(Some(folder_id), None)
+        .expect("messages delta")
+        .response;
+    while let Some(next) = page.next_link.clone() {
+        page = client
+            .messages_delta_from_link(&next)
+            .expect("messages delta page")
+            .response;
+    }
+    let delta_link = page.delta_link.expect("a delta round ends on a delta link");
+
+    let subject = format!("{name} delta");
+    let created = client
+        .message_create(
+            Some(folder_id),
+            &MsgraphMessage {
+                subject: Some(subject),
+                ..Default::default()
+            },
+        )
+        .expect("message create for delta")
+        .response;
+
+    eventually("the delta lists the new message", || {
+        let page = client
+            .messages_delta_from_link(&delta_link)
+            .expect("messages delta from link")
+            .response;
+        page.value
+            .iter()
+            .any(|delta| delta.message.id == created.id)
+    });
+}
+
+/// Sends to the mailbox itself three ways (a draft, JSON, MIME), then
+/// waits for the three deliveries.
+fn send(client: &mut MsgraphClientStd, address: &str, subject: &str) {
+    let draft = client
+        .message_create(
+            None,
+            &MsgraphMessage {
+                subject: Some(String::from(subject)),
+                to_recipients: vec![recipient(address)],
+                ..Default::default()
+            },
+        )
+        .expect("draft create")
+        .response;
+    client.message_send(&draft.id).expect("message send");
 
     client
-        .mail_folder_delete(&folder_id)
-        .expect("mail folder delete");
+        .mail_send(
+            &MsgraphMessage {
+                subject: Some(String::from(subject)),
+                body: Some(MsgraphItemBody {
+                    content_type: Some(MsgraphBodyType::Text),
+                    content: Some(String::from("sent by io-msgraph as JSON")),
+                }),
+                to_recipients: vec![recipient(address)],
+                ..Default::default()
+            },
+            true,
+        )
+        .expect("mail send");
 
-    // NOTE: ── send mail (mime, to self) ──
-
-    let mime = format!(
-        "To: {address}\r\nSubject: io-msgraph send test {ts}\r\n\r\nsent by the io-msgraph test suite\r\n"
-    );
+    let mime = format!("To: {address}\r\nSubject: {subject}\r\n\r\nsent by io-msgraph as MIME\r\n");
     client
         .mail_send_mime(mime.as_bytes())
         .expect("mail send mime");
+
+    eventually("the three messages reach the inbox", || {
+        with_subject(client, "inbox", subject).len() == 3
+    });
 }
 
-#[test]
-#[ignore = "requires MSGRAPH_ACCESS_TOKEN env var and --include-ignored"]
-fn msgraph_contacts() {
-    env_logger::try_init().ok();
+/// Deletes what [`send`] left in the inbox and the sent items.
+fn sweep(client: &mut MsgraphClientStd, subject: &str) {
+    for folder in ["inbox", "sentitems"] {
+        for id in with_subject(client, folder, subject) {
+            if let Err(err) = client.message_delete(&id) {
+                report_leftover("message", &id, &err);
+            }
+        }
+    }
+}
 
-    let token = env::var("MSGRAPH_ACCESS_TOKEN").expect("MSGRAPH_ACCESS_TOKEN not set");
-    let user_id = env::var("MSGRAPH_USER_ID").unwrap_or_else(|_| String::from("me"));
-
-    let options = MsgraphClientStdConnectOptions {
-        user_id,
+/// The ids of the messages of a well-known folder bearing `subject`.
+fn with_subject(client: &mut MsgraphClientStd, folder: &str, subject: &str) -> Vec<String> {
+    let filter = format!("subject eq '{subject}'");
+    let params = MsgraphMessagesListParams {
+        top: Some(25),
+        filter: Some(&filter),
+        select: Some("id"),
         ..Default::default()
     };
-    let mut client = MsgraphClientStd::connect(token, options).expect("connect");
 
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-    let folder_name = format!("io-msgraph-test-{ts}");
+    match client.messages_list(Some(folder), &params) {
+        Ok(listed) => listed.response.value.into_iter().map(|m| m.id).collect(),
+        Err(err) => {
+            eprintln!("WARNING: could not list {folder} for `{subject}`: {err:?}");
+            Vec::new()
+        }
+    }
+}
 
-    // NOTE: ── contact folders list (baseline) ──
-
-    client
-        .contact_folders_list(&Default::default())
-        .expect("contact folders list");
-
-    // NOTE: ── contact folder create ──
-
-    let new_folder = MsgraphContactFolder {
-        display_name: folder_name.clone(),
-        ..Default::default()
-    };
+fn contact_folder_create(client: &mut MsgraphClientStd, name: &str) -> String {
     let folder = client
-        .contact_folder_create(&new_folder)
+        .contact_folder_create(&MsgraphContactFolder {
+            display_name: String::from(name),
+            ..Default::default()
+        })
         .expect("contact folder create")
         .response;
-    let folder_id = folder.id.clone();
-    assert_eq!(folder.display_name, folder_name);
+    assert_eq!(folder.display_name, name);
+    folder.id
+}
 
-    // NOTE: ── contact folder get (verify creation) ──
-
+/// The contact folder surface: get, rename, and the empty child list of
+/// a fresh folder.
+fn contact_folders(client: &mut MsgraphClientStd, folder_id: &str, name: &str) {
     let fetched = client
-        .contact_folder_get(&folder_id)
+        .contact_folder_get(folder_id)
         .expect("contact folder get")
         .response;
-    assert_eq!(fetched.display_name, folder_name);
+    assert_eq!(fetched.display_name, name);
 
-    // NOTE: ── contact folder update (rename) ──
-
-    let renamed_folder_name = format!("{folder_name}-renamed");
-    let folder_patch = MsgraphContactFolder {
-        display_name: renamed_folder_name.clone(),
-        ..Default::default()
-    };
-    let renamed = client
-        .contact_folder_update(&folder_id, &folder_patch)
+    let renamed = format!("{name} renamed");
+    let updated = client
+        .contact_folder_update(
+            folder_id,
+            &MsgraphContactFolder {
+                display_name: renamed.clone(),
+                ..Default::default()
+            },
+        )
         .expect("contact folder update")
         .response;
-    assert_eq!(renamed.display_name, renamed_folder_name);
-
-    // NOTE: ── contact child folders list (empty on a fresh folder) ──
+    assert_eq!(updated.display_name, renamed);
 
     let children = client
-        .contact_child_folders_list(&folder_id, &Default::default())
+        .contact_child_folders_list(folder_id, &Default::default())
         .expect("contact child folders list")
         .response;
-    assert!(
-        children.value.is_empty(),
-        "fresh contact folder should have no child folders"
-    );
+    assert!(children.value.is_empty(), "a fresh folder has no child");
+}
 
-    // NOTE: ── contact create (in the new folder) ──
-
-    let given_name = format!("io-msgraph-{ts}");
-    let new_contact = MsgraphContact {
-        given_name: MsgraphField::Set(given_name.clone()),
-        surname: MsgraphField::Set(String::from("Test")),
-        email_addresses: MsgraphField::Set(vec![MsgraphEmailAddress {
-            name: Some(given_name.clone()),
-            address: Some(String::from("io-msgraph-test@example.com")),
-        }]),
-        business_phones: MsgraphField::Set(vec![String::from("+1 234 567 890")]),
-        ..Default::default()
-    };
+/// Contact create, get, patch, list and delete inside the test folder.
+fn contact_crud(client: &mut MsgraphClientStd, folder_id: &str, name: &str) {
     let contact = client
-        .contact_create(Some(&folder_id), &new_contact)
+        .contact_create(
+            Some(folder_id),
+            &MsgraphContact {
+                given_name: MsgraphField::Set(String::from(name)),
+                surname: MsgraphField::Set(String::from("Test")),
+                email_addresses: MsgraphField::Set(vec![MsgraphEmailAddress {
+                    name: Some(String::from(name)),
+                    address: Some(String::from("io-msgraph-test@example.com")),
+                }]),
+                business_phones: MsgraphField::Set(vec![String::from("+1 234 567 890")]),
+                ..Default::default()
+            },
+        )
         .expect("contact create")
         .response;
-    let contact_id = contact.id.clone();
-    assert_eq!(contact.given_name.as_deref(), Some(given_name.as_str()));
-
-    // NOTE: ── contact get ──
+    assert_eq!(contact.given_name.as_deref(), Some(name));
 
     let fetched = client
-        .contact_get(&contact_id, None)
+        .contact_get(&contact.id, None)
         .expect("contact get")
         .response;
-    assert_eq!(fetched.given_name.as_deref(), Some(given_name.as_str()));
-    let fetched_emails = fetched
+    let emails = fetched
         .email_addresses
         .as_option()
         .expect("email addresses");
     assert_eq!(
-        fetched_emails[0].address.as_deref(),
+        emails[0].address.as_deref(),
         Some("io-msgraph-test@example.com")
     );
 
-    // NOTE: ── contact update (rename) ──
-
-    let patch = MsgraphContact {
-        surname: MsgraphField::Set(String::from("Renamed")),
-        ..Default::default()
-    };
     let updated = client
-        .contact_update(&contact_id, &patch)
+        .contact_update(
+            &contact.id,
+            &MsgraphContact {
+                surname: MsgraphField::Set(String::from("Renamed")),
+                ..Default::default()
+            },
+        )
         .expect("contact update")
         .response;
     assert_eq!(updated.surname.as_deref(), Some("Renamed"));
 
-    // NOTE: ── contacts list (in the new folder) ──
-
-    let params = MsgraphContactsListParams {
-        top: Some(10),
-        ..Default::default()
-    };
     let listed = client
-        .contacts_list(Some(&folder_id), &params)
+        .contacts_list(
+            Some(folder_id),
+            &MsgraphContactsListParams {
+                top: Some(10),
+                ..Default::default()
+            },
+        )
         .expect("contacts list")
         .response;
-    assert!(
-        listed.value.iter().any(|c| c.id == contact_id),
-        "listing should contain the created contact"
+    assert!(listed.value.iter().any(|c| c.id == contact.id));
+
+    client.contact_delete(&contact.id).expect("contact delete");
+}
+
+/// One delta round over the test folder, then a create caught by the
+/// next round from its delta link.
+fn contacts_delta(client: &mut MsgraphClientStd, folder_id: &str, name: &str) {
+    let mut page = client
+        .contacts_delta(Some(folder_id), None)
+        .expect("contacts delta")
+        .response;
+    while let Some(next) = page.next_link.clone() {
+        page = client
+            .contacts_delta_from_link(&next)
+            .expect("contacts delta page")
+            .response;
+    }
+    let delta_link = page.delta_link.expect("a delta round ends on a delta link");
+
+    let created = client
+        .contact_create(
+            Some(folder_id),
+            &MsgraphContact {
+                given_name: MsgraphField::Set(format!("{name} delta")),
+                ..Default::default()
+            },
+        )
+        .expect("contact create for delta")
+        .response;
+
+    eventually("the delta lists the new contact", || {
+        let page = client
+            .contacts_delta_from_link(&delta_link)
+            .expect("contacts delta from link")
+            .response;
+        page.value
+            .iter()
+            .any(|delta| delta.contact.id == created.id)
+    });
+}
+
+fn calendar_create(client: &mut MsgraphClientStd, name: &str) -> String {
+    let calendar = client
+        .calendar_create(&MsgraphCalendar {
+            name: MsgraphField::Set(String::from(name)),
+            ..Default::default()
+        })
+        .expect("calendar create")
+        .response;
+    assert_eq!(calendar.name.as_deref(), Some(name));
+    calendar.id
+}
+
+/// The calendar surface: get, rename and recolour, list.
+fn calendar_metadata(client: &mut MsgraphClientStd, calendar_id: &str, name: &str) {
+    let fetched = client
+        .calendar_get(calendar_id)
+        .expect("calendar get")
+        .response;
+    assert_eq!(fetched.name.as_deref(), Some(name));
+
+    let renamed = format!("{name} renamed");
+    let updated = client
+        .calendar_update(
+            calendar_id,
+            &MsgraphCalendar {
+                name: MsgraphField::Set(renamed.clone()),
+                color: MsgraphField::Set(String::from("lightGreen")),
+                ..Default::default()
+            },
+        )
+        .expect("calendar update")
+        .response;
+    assert_eq!(updated.name.as_deref(), Some(renamed.as_str()));
+    assert_eq!(updated.color.as_deref(), Some("lightGreen"));
+
+    let listed = client
+        .calendars_list(&Default::default())
+        .expect("calendars list")
+        .response;
+    assert!(listed.value.iter().any(|c| c.id == calendar_id));
+}
+
+/// A lone event: create, get, patch, then found by the listing and the
+/// calendar view, and deleted.
+fn single_event(client: &mut MsgraphClientStd, calendar_id: &str, name: &str) {
+    let subject = format!("{name} single");
+    let event = client
+        .event_create(
+            Some(calendar_id),
+            &MsgraphEvent {
+                subject: MsgraphField::Set(subject.clone()),
+                start: MsgraphField::Set(at("2030-01-07T10:00:00")),
+                end: MsgraphField::Set(at("2030-01-07T11:00:00")),
+                ..Default::default()
+            },
+        )
+        .expect("event create")
+        .response;
+    assert_eq!(event.subject.as_deref(), Some(subject.as_str()));
+
+    let fetched = client
+        .event_get(&event.id, None, None)
+        .expect("event get")
+        .response;
+    assert_eq!(
+        fetched.start,
+        MsgraphField::Set(at("2030-01-07T10:00:00.0000000"))
     );
 
-    // NOTE: ── contact delete ──
+    let renamed = format!("{subject} renamed");
+    let updated = client
+        .event_update(
+            &event.id,
+            &MsgraphEvent {
+                subject: MsgraphField::Set(renamed.clone()),
+                ..Default::default()
+            },
+        )
+        .expect("event update")
+        .response;
+    assert_eq!(updated.subject.as_deref(), Some(renamed.as_str()));
+    assert_ne!(
+        updated.change_key, fetched.change_key,
+        "a patch moves the changeKey"
+    );
 
-    client.contact_delete(&contact_id).expect("contact delete");
+    let listed = client
+        .events_list(Some(calendar_id), &Default::default())
+        .expect("events list")
+        .response;
+    assert!(listed.value.iter().any(|e| e.id == event.id));
 
-    // NOTE: ── contact create then delete (default contacts folder) ──
+    let view = client
+        .calendar_view(
+            Some(calendar_id),
+            WINDOW_START,
+            WINDOW_END,
+            &Default::default(),
+        )
+        .expect("calendar view")
+        .response;
+    assert!(view.value.iter().any(|e| e.id == event.id));
 
-    let default_contact = MsgraphContact {
-        given_name: MsgraphField::Set(given_name.clone()),
+    client.event_delete(&event.id).expect("event delete");
+}
+
+/// A weekly series of three: its instances, one modified and one
+/// cancelled, as the master and the view then report them.
+fn recurring_event(client: &mut MsgraphClientStd, calendar_id: &str, name: &str) {
+    let subject = format!("{name} weekly");
+    let master = client
+        .event_create(
+            Some(calendar_id),
+            &MsgraphEvent {
+                subject: MsgraphField::Set(subject.clone()),
+                start: MsgraphField::Set(at("2030-01-10T10:00:00")),
+                end: MsgraphField::Set(at("2030-01-10T11:00:00")),
+                recurrence: MsgraphField::Set(weekly_thrice("2030-01-10")),
+                ..Default::default()
+            },
+        )
+        .expect("recurring event create")
+        .response;
+
+    let instances = client
+        .event_instances(&master.id, WINDOW_START, WINDOW_END, &Default::default())
+        .expect("event instances")
+        .response;
+    assert_eq!(instances.value.len(), 3, "three weekly instances");
+    // NOTE: the iCalendar projection tells an exception's UTC times in its
+    // creation zone, so an unselected listing has to carry it.
+    assert!(
+        instances
+            .value
+            .iter()
+            .all(|instance| instance.original_start_time_zone.is_some()),
+        "instances carry their original zone by default: {instances:?}"
+    );
+
+    let exception = format!("{subject} moved");
+    client
+        .event_update(
+            &instances.value[1].id,
+            &MsgraphEvent {
+                subject: MsgraphField::Set(exception.clone()),
+                ..Default::default()
+            },
+        )
+        .expect("instance update");
+    client
+        .event_delete(&instances.value[2].id)
+        .expect("instance delete");
+
+    let instances = client
+        .event_instances(&master.id, WINDOW_START, WINDOW_END, &Default::default())
+        .expect("event instances after edits")
+        .response;
+    assert_eq!(instances.value.len(), 2, "the cancelled instance is gone");
+    assert!(
+        instances
+            .value
+            .iter()
+            .any(|e| e.subject.as_deref() == Some(exception.as_str())),
+        "the modified instance keeps its own subject"
+    );
+
+    let fetched = client
+        .event_get(&master.id, Some("cancelledOccurrences,recurrence"), None)
+        .expect("master get")
+        .response;
+    assert_eq!(
+        fetched.cancelled_occurrences.len(),
+        1,
+        "the master records the cancelled occurrence"
+    );
+
+    client
+        .event_delete(&master.id)
+        .expect("recurring event delete");
+}
+
+/// One delta round over the calendar window, then a create caught by
+/// the next round from its delta link.
+fn events_delta(client: &mut MsgraphClientStd, calendar_id: &str, name: &str) {
+    let mut page = client
+        .events_delta(Some(calendar_id), WINDOW_START, WINDOW_END)
+        .expect("events delta")
+        .response;
+    while let Some(next) = page.next_link.clone() {
+        page = client
+            .events_delta_from_link(&next)
+            .expect("events delta page")
+            .response;
+    }
+    let delta_link = page.delta_link.expect("a delta round ends on a delta link");
+
+    let created = client
+        .event_create(
+            Some(calendar_id),
+            &MsgraphEvent {
+                subject: MsgraphField::Set(format!("{name} delta")),
+                start: MsgraphField::Set(at("2030-01-20T10:00:00")),
+                end: MsgraphField::Set(at("2030-01-20T11:00:00")),
+                ..Default::default()
+            },
+        )
+        .expect("event create for delta")
+        .response;
+
+    eventually("the delta lists the new event", || {
+        let page = client
+            .events_delta_from_link(&delta_link)
+            .expect("events delta from link")
+            .response;
+        page.value.iter().any(|delta| delta.event.id == created.id)
+    });
+}
+
+#[cfg(feature = "ical")]
+fn ical_document(uid: &str, summary: &str, location: bool) -> String {
+    let mut lines = vec![
+        String::from("BEGIN:VCALENDAR"),
+        String::from("VERSION:2.0"),
+        String::from("PRODID:-//pimalaya//io-msgraph tests//EN"),
+        String::from("BEGIN:VEVENT"),
+        format!("UID:{uid}"),
+        String::from("DTSTAMP:20300101T000000Z"),
+        String::from("DTSTART;TZID=Europe/Paris:20300110T100000"),
+        String::from("DTEND;TZID=Europe/Paris:20300110T110000"),
+        String::from("RRULE:FREQ=WEEKLY;COUNT=2"),
+        format!("SUMMARY:{summary}"),
+        String::from("DESCRIPTION:written by the io-msgraph suite"),
+        String::from("TRANSP:TRANSPARENT"),
+        String::from("CLASS:PRIVATE"),
+        String::from("CATEGORIES:io-msgraph"),
+        String::from("X-PIMALAYA-TEST:kept verbatim"),
+    ];
+
+    if location {
+        lines.push(String::from("LOCATION:Paris"));
+    }
+
+    lines.extend([
+        String::from("BEGIN:VALARM"),
+        String::from("ACTION:DISPLAY"),
+        String::from("DESCRIPTION:reminder"),
+        String::from("TRIGGER:-PT15M"),
+        String::from("END:VALARM"),
+        String::from("END:VEVENT"),
+        String::from("END:VCALENDAR"),
+        String::new(),
+    ]);
+
+    lines.join("\r\n")
+}
+
+/// The value of the event's DESCRIPTION line, the alarm's excluded.
+#[cfg(feature = "ical")]
+fn description(document: &str) -> Option<&str> {
+    document
+        .split("BEGIN:VALARM")
+        .next()?
+        .lines()
+        .find_map(|line| line.strip_prefix("DESCRIPTION:"))
+        .map(str::trim_end)
+}
+
+/// Asserts that the document read back projects like the one written,
+/// on every field the projection manages.
+#[cfg(feature = "ical")]
+fn assert_same_event(written_doc: &str, read_doc: &str) {
+    let written = MsgraphEvent::from_ical(written_doc.as_bytes()).expect("written projects");
+    let read = MsgraphEvent::from_ical(read_doc.as_bytes()).expect("read projects");
+    let context = format!("written:\n{written_doc}\nread:\n{read_doc}");
+
+    assert_eq!(read.subject, written.subject, "SUMMARY altered\n{context}");
+    // NOTE: Exchange stores a plain-text body as HTML, so the read
+    // document carries an X-ALT-DESC beside the text, and only the text
+    // can be compared.
+    assert_eq!(
+        description(read_doc),
+        description(written_doc),
+        "DESCRIPTION altered\n{context}"
+    );
+    assert_eq!(read.start, written.start, "DTSTART altered\n{context}");
+    assert_eq!(read.end, written.end, "DTEND altered\n{context}");
+    assert_eq!(
+        read.is_all_day, written.is_all_day,
+        "all-day altered\n{context}"
+    );
+    assert_eq!(
+        read.location, written.location,
+        "LOCATION altered\n{context}"
+    );
+    // NOTE: Exchange states the week start a rule left implicit, as
+    // Sunday (WKST=SU), which changes nothing for a weekly rule on one
+    // day; only that is forgiven.
+    let mut recurrence = read.recurrence.clone();
+    if let (MsgraphField::Set(read), MsgraphField::Set(written)) =
+        (&mut recurrence, &written.recurrence)
+        && written.pattern.first_day_of_week.is_none()
+        && read.pattern.first_day_of_week == Some(MsgraphDayOfWeek::Sunday)
+    {
+        read.pattern.first_day_of_week = None;
+    }
+    assert_eq!(recurrence, written.recurrence, "RRULE altered\n{context}");
+    assert_eq!(
+        read.categories, written.categories,
+        "CATEGORIES altered\n{context}"
+    );
+    assert_eq!(read.show_as, written.show_as, "TRANSP altered\n{context}");
+    assert_eq!(
+        read.sensitivity, written.sensitivity,
+        "CLASS altered\n{context}"
+    );
+    assert_eq!(
+        read.is_reminder_on, written.is_reminder_on,
+        "VALARM altered\n{context}"
+    );
+    assert_eq!(
+        read.reminder_minutes_before_start, written.reminder_minutes_before_start,
+        "VALARM trigger altered\n{context}"
+    );
+    assert_eq!(
+        read.single_value_extended_properties, written.single_value_extended_properties,
+        "stash altered\n{context}"
+    );
+}
+
+#[cfg(feature = "vcard")]
+fn vcard_document(uid: &str, name: &str, note: bool) -> String {
+    let mut lines = vec![
+        String::from("BEGIN:VCARD"),
+        String::from("VERSION:4.0"),
+        format!("UID:{uid}"),
+        format!("FN:{name} Test"),
+        format!("N:Test;{name};;;"),
+        String::from("EMAIL;TYPE=work:io-msgraph-test@example.com"),
+        String::from("TEL;TYPE=cell:+1 234 567 890"),
+        String::from("ORG:Pimalaya"),
+        String::from("BDAY:19700101"),
+        String::from("X-PIMALAYA-TEST:kept verbatim"),
+    ];
+
+    if note {
+        lines.push(String::from("NOTE:written by the io-msgraph suite"));
+    }
+
+    lines.extend([String::from("END:VCARD"), String::new()]);
+    lines.join("\r\n")
+}
+
+/// Asserts that the vCard read back projects like the one written.
+#[cfg(feature = "vcard")]
+fn assert_same_contact(written_doc: &str, read_doc: &str) {
+    let written = MsgraphContact::from_vcard(written_doc).expect("written projects");
+    let read = MsgraphContact::from_vcard(read_doc).expect("read projects");
+
+    assert_eq!(read, written, "written:\n{written_doc}\nread:\n{read_doc}");
+}
+
+/// A UTC boundary, as Graph spells it without a zone suffix.
+fn at(date_time: &str) -> MsgraphDateTimeTimeZone {
+    MsgraphDateTimeTimeZone {
+        date_time: String::from(date_time),
+        time_zone: Some(String::from("UTC")),
+    }
+}
+
+/// Every Thursday for three weeks from `start`, a Thursday.
+fn weekly_thrice(start: &str) -> MsgraphPatternedRecurrence {
+    MsgraphPatternedRecurrence {
+        pattern: MsgraphRecurrencePattern {
+            pattern_type: Some(MsgraphRecurrencePatternType::Weekly),
+            interval: Some(1),
+            days_of_week: vec![MsgraphDayOfWeek::Thursday],
+            ..Default::default()
+        },
+        range: MsgraphRecurrenceRange {
+            range_type: Some(MsgraphRecurrenceRangeType::Numbered),
+            start_date: Some(String::from(start)),
+            number_of_occurrences: Some(3),
+            recurrence_time_zone: Some(String::from("UTC")),
+            ..Default::default()
+        },
+    }
+}
+
+fn recipient(address: &str) -> MsgraphRecipient {
+    MsgraphRecipient {
+        email_address: MsgraphEmailAddress {
+            name: None,
+            address: Some(String::from(address)),
+        },
+    }
+}
+
+/// The address of the mailbox the run acts on.
+fn address(client: &mut MsgraphClientStd) -> String {
+    let me = client.me().expect("me").response;
+    me.mail
+        .or(me.user_principal_name)
+        .expect("the mailbox exposes an address")
+}
+
+/// Opens the connection with the environment's token, on the mailbox
+/// the run acts on.
+fn connect() -> MsgraphClientStd {
+    env_logger::try_init().ok();
+
+    let (token, default_user) = token();
+    let options = MsgraphClientStdConnectOptions {
+        user_id: env::var("MSGRAPH_USER_ID").unwrap_or_else(|_| String::from(default_user)),
         ..Default::default()
     };
-    let contact = client
-        .contact_create(None, &default_contact)
-        .expect("default contact create")
-        .response;
-    let listed = client
-        .contacts_list(None, &Default::default())
-        .expect("default contacts list")
-        .response;
-    assert!(
-        listed.value.iter().any(|c| c.id == contact.id),
-        "default folder listing should contain the created contact"
-    );
-    client
-        .contact_delete(&contact.id)
-        .expect("default contact delete");
 
-    // NOTE: ── contact folder delete (cleanup) ──
+    MsgraphClientStd::connect(token, options).expect("connect")
+}
 
-    client
-        .contact_folder_delete(&folder_id)
-        .expect("contact folder delete");
+/// The access token, and the mailbox it acts on unless
+/// `MSGRAPH_USER_ID` says otherwise: `me` for a delegated token minted
+/// by hand, the test mailbox for an app-only one minted here.
+fn token() -> (String, &'static str) {
+    if let Ok(token) = env::var("MSGRAPH_ACCESS_TOKEN") {
+        return (token, "me");
+    }
+
+    let var = |name: &str| {
+        env::var(name).unwrap_or_else(|_| {
+            panic!(
+                "set MSGRAPH_ACCESS_TOKEN, or MSGRAPH_TENANT_ID, MSGRAPH_CLIENT_ID and \
+                 MSGRAPH_CLIENT_SECRET to mint one ({name} is missing)"
+            )
+        })
+    };
+
+    let tenant = var("MSGRAPH_TENANT_ID");
+    let client_id = var("MSGRAPH_CLIENT_ID");
+    let secret = var("MSGRAPH_CLIENT_SECRET");
+
+    (mint_token(&tenant, &client_id, secret), DEFAULT_USER)
+}
+
+/// Trades the app's client secret for an app-only Graph token (RFC
+/// 6749 section 4.4).
+fn mint_token(tenant: &str, client_id: &str, secret: String) -> String {
+    let token_uri: Url = format!("https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token")
+        .parse()
+        .expect("the token URI is a valid URL");
+
+    let mut client = Oauth20ClientStd::connect(token_uri, &Tls::default(), client_id)
+        .expect("connect to the token endpoint");
+    client.client_secret = Some(SecretString::from(secret));
+
+    let params = Oauth20ClientCredentialsRequestParams {
+        scope: [Cow::from(GRAPH_SCOPE)].into_iter().collect(),
+    };
+
+    match client
+        .request_client_credentials(params)
+        .expect("request the client credentials grant")
+    {
+        Ok(granted) => granted.access_token.expose_secret().to_owned(),
+        Err(err) => panic!("the token endpoint refused the client: {err:?}"),
+    }
+}
+
+/// Milliseconds since the Unix epoch, to name a run's resources.
+fn unix_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+}
+
+/// Polls `check` until it holds, panicking with `what` after
+/// [`SETTLE`].
+///
+/// Graph acknowledges a write before every read reflects it: a delivery,
+/// a delta round, a listing all catch up within seconds, sometimes more.
+fn eventually(what: &str, mut check: impl FnMut() -> bool) {
+    let deadline = Instant::now() + SETTLE;
+
+    loop {
+        if check() {
+            return;
+        }
+        if Instant::now() > deadline {
+            panic!("timed out waiting until {what}");
+        }
+        thread::sleep(Duration::from_secs(3));
+    }
+}
+
+/// Runs `body`, then `cleanup` whichever way `body` went, and only then
+/// re-raises a panic `body` may have raised.
+///
+/// These flows run against a real mailbox. Every step panics on failure,
+/// so a teardown written as the last statements of a flow would be
+/// skipped the moment anything goes wrong, leaving the folder or the
+/// calendar behind for good.
+fn with_cleanup<B, C>(client: &mut MsgraphClientStd, body: B, cleanup: C)
+where
+    B: FnOnce(&mut MsgraphClientStd),
+    C: FnOnce(&mut MsgraphClientStd),
+{
+    let outcome = panic::catch_unwind(AssertUnwindSafe(|| body(client)));
+
+    if panic::catch_unwind(AssertUnwindSafe(|| cleanup(client))).is_err() {
+        eprintln!("WARNING: cleanup itself failed, the mailbox may hold leftovers");
+    }
+
+    if let Err(payload) = outcome {
+        panic::resume_unwind(payload);
+    }
+}
+
+/// Reports a failed teardown without panicking, naming what was left
+/// behind so it can be removed by hand.
+fn report_leftover(what: &str, id: &str, err: &dyn Debug) {
+    eprintln!("WARNING: could not clean up {what} `{id}`, remove it by hand: {err:?}");
 }
