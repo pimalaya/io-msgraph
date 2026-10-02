@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-10-02
+
 ### Fixed
 
 - Fixed `to_ical` writing an event in UTC: Graph answers a read in UTC, so a series created in Europe/Paris read back anchored on UTC and drifted by an hour at each DST change once expanded. `MSGRAPH_EVENT_ICAL_SELECT` now selects `originalStartTimeZone` and `originalEndTimeZone`, and the projection tells a UTC start and end in that zone when the database knows it.
@@ -104,7 +106,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added the contacts surface: contact folders and contacts, with delta.
 - Added `MsgraphClientStd` (`client` feature), a std blocking client with a `connect` constructor behind the TLS features.
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.2..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.3..HEAD
+[0.4.3]: https://github.com/pimalaya/io-msgraph/compare/v0.4.2..v0.4.3
 [0.4.2]: https://github.com/pimalaya/io-msgraph/compare/v0.4.1..v0.4.2
 [0.4.1]: https://github.com/pimalaya/io-msgraph/compare/v0.4.0..v0.4.1
 [0.4.0]: https://github.com/pimalaya/io-msgraph/compare/v0.3.1..v0.4.0
