@@ -355,7 +355,12 @@ impl MsgraphEvent {
                 content_type: Some(MsgraphBodyType::Text),
                 content: Some(content),
             }),
-            (None, None) => MsgraphField::Null,
+            // NOTE: Graph refuses a null body, an empty text one is how
+            // it clears.
+            (None, None) => MsgraphField::Set(MsgraphItemBody {
+                content_type: Some(MsgraphBodyType::Text),
+                content: Some(String::new()),
+            }),
         };
 
         if matches!(event.show_as, MsgraphField::Null) {
@@ -412,9 +417,12 @@ impl MsgraphEvent {
             )*};
         }
 
+        if same_text(&body_text(&event.body), &body_text(&base.body)) {
+            event.body = MsgraphField::Unset;
+        }
+
         unset_unchanged!(
             subject,
-            body,
             start,
             end,
             is_all_day,
@@ -1389,6 +1397,19 @@ fn stamp_prop(kind: IcalPropKind, stamp: String) -> IcalProp<'static> {
     }
 }
 
+/// The text a body says, whatever its content type: Exchange turns every
+/// body into HTML, so the type alone never tells an edit.
+fn body_text(body: &MsgraphField<MsgraphItemBody>) -> String {
+    let Some(body) = body.as_option() else {
+        return String::new();
+    };
+    let content = body.content.as_deref().unwrap_or_default();
+    match body.content_type {
+        Some(MsgraphBodyType::Html) => strip_html(content),
+        _ => content.to_owned(),
+    }
+}
+
 /// The text of an HTML body without its markup, for DESCRIPTION.
 fn strip_html(html: &str) -> String {
     let mut text = String::with_capacity(html.len());
@@ -1973,6 +1994,48 @@ mod tests {
         let body = patch.body.as_option().expect("the edit reaches the patch");
         assert_eq!(body.content_type, Some(MsgraphBodyType::Text));
         assert_eq!(body.content.as_deref(), Some("new notes"));
+    }
+
+    /// A document with its description lines, folded ones included, removed.
+    fn without_description(ical: &str) -> String {
+        let mut kept = String::new();
+        let mut dropping = false;
+        for line in ical.split_inclusive("\r\n") {
+            if !line.starts_with(' ') {
+                dropping = line.starts_with("DESCRIPTION") || line.starts_with("X-ALT-DESC");
+            }
+            if !dropping {
+                kept.push_str(line);
+            }
+        }
+        kept
+    }
+
+    #[test]
+    fn an_empty_html_body_matches_a_document_without_description() {
+        let mut event = utc_read();
+        event.body = MsgraphField::Set(MsgraphItemBody {
+            content_type: Some(MsgraphBodyType::Html),
+            content: Some("<html><body></body></html>".into()),
+        });
+        let read = event.to_ical();
+        let edited = without_description(&read);
+
+        let patch = MsgraphEvent::update_from_ical(edited.as_bytes(), read.as_bytes()).unwrap();
+
+        assert_eq!(patch.body, MsgraphField::Unset, "no body change to send");
+    }
+
+    #[test]
+    fn a_cleared_description_sends_an_empty_text_body() {
+        let read = html_read();
+        let edited = without_description(&read);
+
+        let patch = MsgraphEvent::update_from_ical(edited.as_bytes(), read.as_bytes()).unwrap();
+
+        let body = serde_json::to_value(&patch).unwrap()["body"].clone();
+        assert_eq!(body["contentType"], "text", "Graph refuses a null body");
+        assert_eq!(body["content"], "");
     }
 
     #[test]

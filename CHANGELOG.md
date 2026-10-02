@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `update_from_ical` patching an event's body to `null`, which Graph refuses (HTTP 400, "The body of the item is invalid"): Graph reads back an empty HTML body, so any edit of an event without DESCRIPTION, or one clearing it, failed. A missing DESCRIPTION is now an empty text body, and bodies compare by their text.
+
 ## [0.4.3] - 2026-10-02
 
 ### Fixed
