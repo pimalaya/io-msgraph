@@ -48,21 +48,24 @@ use std::{
 };
 
 use io_msgraph::v1::{
-    client::{MsgraphClientStd, MsgraphClientStdConnectOptions},
+    client::{MsgraphClientStd, MsgraphClientStdConnectOptions, MsgraphClientStdError},
     field::MsgraphField,
-    rest::users::{
-        calendars::MsgraphCalendar,
-        contact_folders::MsgraphContactFolder,
-        contacts::{MsgraphContact, list::MsgraphContactsListParams},
-        events::{
-            MsgraphDateTimeTimeZone, MsgraphDayOfWeek, MsgraphEvent, MsgraphPatternedRecurrence,
-            MsgraphRecurrencePattern, MsgraphRecurrencePatternType, MsgraphRecurrenceRange,
-            MsgraphRecurrenceRangeType,
-        },
-        mail_folders::MsgraphMailFolder,
-        messages::{
-            MsgraphBodyType, MsgraphEmailAddress, MsgraphItemBody, MsgraphMessage,
-            MsgraphRecipient, list::MsgraphMessagesListParams,
+    rest::{
+        batch::MsgraphBatchRequest,
+        users::{
+            calendars::MsgraphCalendar,
+            contact_folders::MsgraphContactFolder,
+            contacts::{MsgraphContact, list::MsgraphContactsListParams},
+            events::{
+                MsgraphDateTimeTimeZone, MsgraphDayOfWeek, MsgraphEvent, MsgraphEventType,
+                MsgraphPatternedRecurrence, MsgraphRecurrencePattern, MsgraphRecurrencePatternType,
+                MsgraphRecurrenceRange, MsgraphRecurrenceRangeType, list::MsgraphEventsListParams,
+            },
+            mail_folders::MsgraphMailFolder,
+            messages::{
+                MsgraphBodyType, MsgraphEmailAddress, MsgraphItemBody, MsgraphMessage,
+                MsgraphRecipient, list::MsgraphMessagesListParams,
+            },
         },
     },
 };
@@ -147,6 +150,7 @@ fn mail() {
             mail_folders(client, &folder_id, &name);
             messages(client, &folder_id, &name, &address);
             messages_delta(client, &folder_id, &name);
+            errors_and_batch(client, &folder_id, &name, &address);
             send(client, &address, &sent_subject);
         },
         |client| {
@@ -194,6 +198,7 @@ fn calendars() {
         |client| {
             calendar_metadata(client, &calendar_id, &name);
             single_event(client, &calendar_id, &name);
+            events_paging(client, &calendar_id, &name);
             recurring_event(client, &calendar_id, &name);
             events_delta(client, &calendar_id, &name);
         },
@@ -295,6 +300,189 @@ fn ical() {
                 Some("annotated by hand"),
                 "the edited text reaches Graph:\n{annotated_read}"
             );
+        },
+        |client| {
+            if let Err(err) = client.calendar_delete(&calendar_id) {
+                report_leftover("calendar", &calendar_id, &err);
+            }
+        },
+    );
+}
+
+/// A series read the way calendula and neverest read one: its master and
+/// its exceptions, from the default instance listing, through
+/// `to_ical_series`.
+#[cfg(feature = "ical")]
+#[test]
+#[ignore = "requires Graph credentials and --ignored"]
+fn ical_series() {
+    use io_msgraph::v1::rest::users::events::ical::{
+        MSGRAPH_EVENT_ICAL_SELECT, MSGRAPH_EVENT_STASH_EXPAND,
+    };
+
+    let mut client = connect();
+    let name = format!("io-msgraph-test-{}", unix_millis());
+    let uid = format!("{name}@pimalaya.org");
+    let address = address(&mut client);
+
+    let calendar_id = calendar_create(&mut client, &name);
+
+    with_cleanup(
+        &mut client,
+        |client| {
+            let document = event_document(
+                &uid,
+                &name,
+                &[
+                    "DTSTART;TZID=Europe/Paris:20300110T100000",
+                    "DTEND;TZID=Europe/Paris:20300110T110000",
+                    "RRULE:FREQ=WEEKLY;COUNT=3",
+                    &format!("ATTENDEE;CN=Pimalaya;ROLE=REQ-PARTICIPANT:mailto:{address}"),
+                ],
+            );
+            let written =
+                MsgraphEvent::create_from_ical(document.as_bytes()).expect("the series projects");
+            let master = client
+                .event_create(Some(&calendar_id), &written)
+                .expect("series create")
+                .response;
+
+            let mut instances = client
+                .event_instances(&master.id, WINDOW_START, WINDOW_END, &Default::default())
+                .expect("series instances")
+                .response
+                .value;
+            assert_eq!(instances.len(), 3, "three weekly instances");
+            instances.sort_by(|a, b| {
+                a.start
+                    .as_option()
+                    .map(|s| &s.date_time)
+                    .cmp(&b.start.as_option().map(|s| &s.date_time))
+            });
+
+            let moved = format!("{name} moved");
+            client
+                .event_update(
+                    &instances[1].id,
+                    &MsgraphEvent {
+                        subject: MsgraphField::Set(moved.clone()),
+                        ..Default::default()
+                    },
+                )
+                .expect("instance update");
+            client
+                .event_delete(&instances[2].id)
+                .expect("instance delete");
+
+            let master = client
+                .event_get(
+                    &master.id,
+                    Some(MSGRAPH_EVENT_ICAL_SELECT),
+                    Some(MSGRAPH_EVENT_STASH_EXPAND),
+                )
+                .expect("series master get")
+                .response;
+            // NOTE: an exception needs its originalStart for its
+            // RECURRENCE-ID, which the default listing leaves out.
+            let params = MsgraphEventsListParams {
+                select: Some(MSGRAPH_EVENT_ICAL_SELECT),
+                ..Default::default()
+            };
+            let instances = client
+                .event_instances(&master.id, WINDOW_START, WINDOW_END, &params)
+                .expect("series instances after edits")
+                .response
+                .value;
+            let exceptions: Vec<&MsgraphEvent> = instances
+                .iter()
+                .filter(|e| e.event_type == Some(MsgraphEventType::Exception))
+                .collect();
+            assert_eq!(exceptions.len(), 1, "one exception: {instances:?}");
+
+            let read = master.to_ical_series(&exceptions);
+            for expected in [
+                "RECURRENCE-ID;TZID=Europe/Paris:20300117T100000\r\n",
+                "EXDATE;TZID=Europe/Paris:20300124T100000\r\n",
+                &format!("SUMMARY:{moved}\r\n"),
+            ] {
+                assert!(read.contains(expected), "missing `{expected}`:\n{read}");
+            }
+            assert!(
+                read.to_lowercase()
+                    .contains(&format!("mailto:{}", address.to_lowercase())),
+                "the attendee reads back:\n{read}"
+            );
+            MsgraphEvent::from_ical(read.as_bytes()).expect("the series document projects back");
+        },
+        |client| {
+            if let Err(err) = client.calendar_delete(&calendar_id) {
+                report_leftover("calendar", &calendar_id, &err);
+            }
+        },
+    );
+}
+
+/// The shapes the weekly series of [`ical`] does not reach: an all-day
+/// event, a monthly rule ending on a date, and a relative monthly rule.
+#[cfg(feature = "ical")]
+#[test]
+#[ignore = "requires Graph credentials and --ignored"]
+fn ical_shapes() {
+    use io_msgraph::v1::rest::users::events::ical::{
+        MSGRAPH_EVENT_ICAL_SELECT, MSGRAPH_EVENT_STASH_EXPAND,
+    };
+
+    let mut client = connect();
+    let name = format!("io-msgraph-test-{}", unix_millis());
+
+    let calendar_id = calendar_create(&mut client, &name);
+
+    with_cleanup(
+        &mut client,
+        |client| {
+            let shapes: [(&str, &[&str]); 3] = [
+                (
+                    "all-day",
+                    &["DTSTART;VALUE=DATE:20300112", "DTEND;VALUE=DATE:20300113"],
+                ),
+                (
+                    "monthly-until",
+                    &[
+                        "DTSTART;TZID=Europe/Paris:20300115T100000",
+                        "DTEND;TZID=Europe/Paris:20300115T110000",
+                        "RRULE:FREQ=MONTHLY;BYMONTHDAY=15;UNTIL=20300615T080000Z",
+                    ],
+                ),
+                (
+                    "relative-monthly",
+                    &[
+                        "DTSTART;TZID=Europe/Paris:20300108T100000",
+                        "DTEND;TZID=Europe/Paris:20300108T110000",
+                        "RRULE:FREQ=MONTHLY;BYDAY=2TU;COUNT=3",
+                    ],
+                ),
+            ];
+
+            for (shape, timing) in shapes {
+                let uid = format!("{name}-{shape}@pimalaya.org");
+                let document = event_document(&uid, &format!("{name} {shape}"), timing);
+                let written = MsgraphEvent::create_from_ical(document.as_bytes())
+                    .unwrap_or_else(|err| panic!("the {shape} document projects: {err}"));
+                let created = client
+                    .event_create(Some(&calendar_id), &written)
+                    .unwrap_or_else(|err| panic!("{shape} create: {err}"))
+                    .response;
+
+                let fetched = client
+                    .event_get(
+                        &created.id,
+                        Some(MSGRAPH_EVENT_ICAL_SELECT),
+                        Some(MSGRAPH_EVENT_STASH_EXPAND),
+                    )
+                    .unwrap_or_else(|err| panic!("{shape} get: {err}"))
+                    .response;
+                assert_same_event(&document, &fetched.to_ical());
+            }
         },
         |client| {
             if let Err(err) = client.calendar_delete(&calendar_id) {
@@ -574,6 +762,68 @@ fn messages_delta(client: &mut MsgraphClientStd, folder_id: &str, name: &str) {
             .iter()
             .any(|delta| delta.message.id == created.id)
     });
+}
+
+/// The error path and the batch: a message read after its delete
+/// answers the Graph error envelope, alone and inside a batch beside a
+/// request that succeeds.
+fn errors_and_batch(client: &mut MsgraphClientStd, folder_id: &str, name: &str, address: &str) {
+    let message = client
+        .message_create(
+            Some(folder_id),
+            &MsgraphMessage {
+                subject: Some(format!("{name} gone")),
+                ..Default::default()
+            },
+        )
+        .expect("message create for the error path")
+        .response;
+    client
+        .message_delete(&message.id)
+        .expect("message delete for the error path");
+
+    match client.message_get(&message.id) {
+        Err(MsgraphClientStdError::Send(err)) => {
+            assert_eq!(err.status(), Some(404), "a deleted message is gone: {err}");
+            assert!(!err.is_retryable(), "a 404 is no transient failure");
+        }
+        other => panic!("a deleted message should answer 404, got {other:?}"),
+    }
+
+    let requests = [
+        MsgraphBatchRequest {
+            id: String::from("folder"),
+            method: String::from("GET"),
+            url: format!("/users/{address}/mailFolders/{folder_id}"),
+            ..Default::default()
+        },
+        MsgraphBatchRequest {
+            id: String::from("gone"),
+            method: String::from("GET"),
+            url: format!("/users/{address}/messages/{}", message.id),
+            ..Default::default()
+        },
+    ];
+    let responses = client.batch(&requests).expect("batch").response.responses;
+    assert_eq!(responses.len(), 2, "one response per request");
+
+    for response in responses {
+        match response.id.as_str() {
+            "folder" => {
+                let folder = response
+                    .parse::<MsgraphMailFolder>()
+                    .expect("the folder request succeeds");
+                assert_eq!(folder.id, folder_id);
+            }
+            "gone" => {
+                let err = response
+                    .parse::<MsgraphMessage>()
+                    .expect_err("the deleted message fails inside the batch");
+                assert_eq!(err.status(), Some(404), "{err}");
+            }
+            id => panic!("unexpected batch response id `{id}`"),
+        }
+    }
 }
 
 /// Sends to the mailbox itself three ways (a draft, JSON, MIME), then
@@ -891,6 +1141,51 @@ fn single_event(client: &mut MsgraphClientStd, calendar_id: &str, name: &str) {
     client.event_delete(&event.id).expect("event delete");
 }
 
+/// A listing one event per page, followed through its next link until
+/// both events of the calendar were seen.
+fn events_paging(client: &mut MsgraphClientStd, calendar_id: &str, name: &str) {
+    let mut created = Vec::new();
+    for (index, day) in ["2030-01-14", "2030-01-15"].iter().enumerate() {
+        let event = client
+            .event_create(
+                Some(calendar_id),
+                &MsgraphEvent {
+                    subject: MsgraphField::Set(format!("{name} page {index}")),
+                    start: MsgraphField::Set(at(&format!("{day}T10:00:00"))),
+                    end: MsgraphField::Set(at(&format!("{day}T11:00:00"))),
+                    ..Default::default()
+                },
+            )
+            .expect("event create for paging")
+            .response;
+        created.push(event.id);
+    }
+
+    let params = MsgraphEventsListParams {
+        top: Some(1),
+        ..Default::default()
+    };
+    let mut page = client
+        .events_list(Some(calendar_id), &params)
+        .expect("events list, first page")
+        .response;
+    assert_eq!(page.value.len(), 1, "one event per page");
+
+    let mut seen: Vec<String> = page.value.drain(..).map(|event| event.id).collect();
+    while let Some(next) = page.next_link.take() {
+        page = client
+            .events_list_from_link(&next)
+            .expect("events list, next page")
+            .response;
+        seen.extend(page.value.drain(..).map(|event| event.id));
+    }
+
+    for id in &created {
+        assert!(seen.contains(id), "the pages miss event `{id}`");
+        client.event_delete(id).expect("event delete after paging");
+    }
+}
+
 /// A weekly series of three: its instances, one modified and one
 /// cancelled, as the master and the view then report them.
 fn recurring_event(client: &mut MsgraphClientStd, calendar_id: &str, name: &str) {
@@ -943,6 +1238,15 @@ fn recurring_event(client: &mut MsgraphClientStd, calendar_id: &str, name: &str)
         .expect("event instances after edits")
         .response;
     assert_eq!(instances.value.len(), 2, "the cancelled instance is gone");
+    assert_eq!(
+        instances
+            .value
+            .iter()
+            .filter(|e| e.event_type == Some(MsgraphEventType::Exception))
+            .count(),
+        1,
+        "the modified instance turned into an exception"
+    );
     assert!(
         instances
             .value
@@ -1001,6 +1305,31 @@ fn events_delta(client: &mut MsgraphClientStd, calendar_id: &str, name: &str) {
             .response;
         page.value.iter().any(|delta| delta.event.id == created.id)
     });
+}
+
+/// A one-event document with the given timing lines (DTSTART, DTEND,
+/// RRULE, ATTENDEE…), the rest kept minimal.
+#[cfg(feature = "ical")]
+fn event_document(uid: &str, summary: &str, timing: &[&str]) -> String {
+    let mut lines = vec![
+        String::from("BEGIN:VCALENDAR"),
+        String::from("VERSION:2.0"),
+        String::from("PRODID:-//pimalaya//io-msgraph tests//EN"),
+        String::from("BEGIN:VEVENT"),
+        format!("UID:{uid}"),
+        String::from("DTSTAMP:20300101T000000Z"),
+        format!("SUMMARY:{summary}"),
+        String::from("DESCRIPTION:written by the io-msgraph suite"),
+        String::from("TRANSP:OPAQUE"),
+        String::from("CLASS:PUBLIC"),
+    ];
+    lines.extend(timing.iter().map(|line| String::from(*line)));
+    lines.extend([
+        String::from("END:VEVENT"),
+        String::from("END:VCALENDAR"),
+        String::new(),
+    ]);
+    lines.join("\r\n")
 }
 
 #[cfg(feature = "ical")]

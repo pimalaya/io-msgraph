@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - Fixed `from_ical` dropping an edited DESCRIPTION: a document read from Graph carries Exchange's HTML body as `X-ALT-DESC` beside the text, and the HTML always won, so `update_from_ical` saw no change and left the edit out of the patch. The HTML now wins only while it says what the text says.
 
+- Documented that `to_ical_series` needs its exceptions read with `MSGRAPH_EVENT_ICAL_SELECT`: Graph's default instance listing leaves out `originalStart`, and an exception without it gets no RECURRENCE-ID.
+
 ## [0.4.2] - 2026-10-01
 
 ### Added

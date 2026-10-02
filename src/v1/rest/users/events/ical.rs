@@ -130,6 +130,10 @@ impl MsgraphEvent {
     /// Projects a series master and its exceptions onto one VCALENDAR
     /// document, the exceptions as VEVENTs carrying the master's UID and a
     /// RECURRENCE-ID.
+    ///
+    /// Read the exceptions with [`MSGRAPH_EVENT_ICAL_SELECT`] too: the
+    /// default instance listing leaves out `originalStart`, without which
+    /// an exception gets no RECURRENCE-ID and reads as a second master.
     pub fn to_ical_series(&self, exceptions: &[&MsgraphEvent]) -> String {
         let master = localized(self);
         let master = &*master;
