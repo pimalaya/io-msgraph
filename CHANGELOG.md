@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-10-02
+
 ### Fixed
 
 - Fixed `update_from_ical` patching an event's body to `null`, which Graph refuses (HTTP 400, "The body of the item is invalid"): Graph reads back an empty HTML body, so any edit of an event without DESCRIPTION, or one clearing it, failed. A missing DESCRIPTION is now an empty text body, and bodies compare by their text.
@@ -110,7 +112,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added the contacts surface: contact folders and contacts, with delta.
 - Added `MsgraphClientStd` (`client` feature), a std blocking client with a `connect` constructor behind the TLS features.
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.3..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.4..HEAD
+[0.4.4]: https://github.com/pimalaya/io-msgraph/compare/v0.4.3..v0.4.4
 [0.4.3]: https://github.com/pimalaya/io-msgraph/compare/v0.4.2..v0.4.3
 [0.4.2]: https://github.com/pimalaya/io-msgraph/compare/v0.4.1..v0.4.2
 [0.4.1]: https://github.com/pimalaya/io-msgraph/compare/v0.4.0..v0.4.1
