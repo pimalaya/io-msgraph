@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-10-03
+
 ### Added
 
 - Added `MsgraphPatternedRecurrence::bounds` (`ical` feature): the dates a series spans, following its range type. Graph fills the `endDate` of a `numbered` or `noEnd` range with `0001-01-01`, so reading `endDate` alone gave an instances window ending before it starts.
@@ -120,7 +122,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added the contacts surface: contact folders and contacts, with delta.
 - Added `MsgraphClientStd` (`client` feature), a std blocking client with a `connect` constructor behind the TLS features.
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.4..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.5..HEAD
+[0.4.5]: https://github.com/pimalaya/io-msgraph/compare/v0.4.4..v0.4.5
 [0.4.4]: https://github.com/pimalaya/io-msgraph/compare/v0.4.3..v0.4.4
 [0.4.3]: https://github.com/pimalaya/io-msgraph/compare/v0.4.2..v0.4.3
 [0.4.2]: https://github.com/pimalaya/io-msgraph/compare/v0.4.1..v0.4.2
