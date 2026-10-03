@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added `MsgraphPatternedRecurrence::bounds` (`ical` feature): the dates a series spans, following its range type. Graph fills the `endDate` of a `numbered` or `noEnd` range with `0001-01-01`, so reading `endDate` alone gave an instances window ending before it starts.
+
+### Changed
+
+- Documented that Graph returns `cancelledOccurrences` only on a read of a series master by id, never in a listing.
+
 ## [0.4.4] - 2026-10-02
 
 ### Fixed

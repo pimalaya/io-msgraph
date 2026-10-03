@@ -98,6 +98,10 @@ pub const MSGRAPH_EVENT_STASH_EXPAND: &str = "singleValueExtendedProperties($fil
 /// reads, `cancelledOccurrences` among them, which Graph returns only
 /// selected, and the zones an event was created in, which give back the
 /// wall time Graph answers in UTC.
+///
+/// Graph returns `cancelledOccurrences` only on a read of a series master
+/// by its id, never in a listing: project a master read with
+/// `event_get`, else its cancelled occurrences get no EXDATE.
 pub const MSGRAPH_EVENT_ICAL_SELECT: &str = "id,iCalUId,changeKey,createdDateTime,\
      lastModifiedDateTime,type,seriesMasterId,originalStart,originalStartTimeZone,\
      originalEndTimeZone,subject,body,start,end,isAllDay,location,recurrence,attendees,\
@@ -458,6 +462,47 @@ impl MsgraphEvent {
                 .then(|| line.raw_value_str().trim().to_string())
                 .filter(|uid| !uid.is_empty())
         })
+    }
+}
+
+impl MsgraphPatternedRecurrence {
+    /// The first and last dates a series spans, inclusive, the last
+    /// `None` for a `noEnd` range.
+    ///
+    /// The last date follows the range type: the `endDate` of an `endDate`
+    /// range, a bound past the last occurrence of a `numbered` one, sized
+    /// `numberOfOccurrences` times `interval` periods of the pattern. Graph
+    /// fills the `endDate` of the other types with `0001-01-01`, which is
+    /// no end.
+    pub fn bounds(&self) -> Option<(Date, Option<Date>)> {
+        let range = &self.range;
+        let start = range.start_date.as_deref()?.parse::<Date>().ok()?;
+
+        let end = match range.range_type? {
+            MsgraphRecurrenceRangeType::EndDate => {
+                Some(range.end_date.as_deref()?.parse::<Date>().ok()?)
+            }
+            MsgraphRecurrenceRangeType::Numbered => {
+                let periods = i64::from(range.number_of_occurrences?)
+                    * i64::from(self.pattern.interval.unwrap_or(1).max(1));
+                let span = match self.pattern.pattern_type? {
+                    MsgraphRecurrencePatternType::Daily => Span::new().try_days(periods),
+                    MsgraphRecurrencePatternType::Weekly => Span::new().try_weeks(periods),
+                    MsgraphRecurrencePatternType::AbsoluteMonthly
+                    | MsgraphRecurrencePatternType::RelativeMonthly => {
+                        Span::new().try_months(periods)
+                    }
+                    MsgraphRecurrencePatternType::AbsoluteYearly
+                    | MsgraphRecurrencePatternType::RelativeYearly => {
+                        Span::new().try_years(periods)
+                    }
+                };
+                Some(start.checked_add(span.ok()?).ok()?)
+            }
+            MsgraphRecurrenceRangeType::NoEnd => None,
+        };
+
+        Some((start, end))
     }
 }
 
@@ -1815,6 +1860,47 @@ mod tests {
 
         // NOTE: the end of 30 September in Paris, UTC+2 in summer.
         assert!(event.to_ical().contains(";UNTIL=20260930T215959Z\r\n"));
+    }
+
+    #[test]
+    fn a_series_is_bounded_by_its_range_type_not_the_sentinel_end() {
+        let bounds = |range_type, interval| {
+            let recurrence = MsgraphPatternedRecurrence {
+                pattern: MsgraphRecurrencePattern {
+                    pattern_type: Some(MsgraphRecurrencePatternType::Weekly),
+                    interval,
+                    ..Default::default()
+                },
+                range: MsgraphRecurrenceRange {
+                    range_type: Some(range_type),
+                    start_date: Some("2026-09-28".into()),
+                    end_date: Some("0001-01-01".into()),
+                    number_of_occurrences: Some(11),
+                    ..Default::default()
+                },
+            };
+            recurrence
+                .bounds()
+                .map(|(start, end)| (start.to_string(), end.map(|end| end.to_string())))
+        };
+
+        let start = String::from("2026-09-28");
+        assert_eq!(
+            bounds(MsgraphRecurrenceRangeType::Numbered, None),
+            Some((start.clone(), Some("2026-12-14".into()))),
+        );
+        assert_eq!(
+            bounds(MsgraphRecurrenceRangeType::Numbered, Some(2)),
+            Some((start.clone(), Some("2027-03-01".into()))),
+        );
+        assert_eq!(
+            bounds(MsgraphRecurrenceRangeType::NoEnd, None),
+            Some((start.clone(), None)),
+        );
+        assert_eq!(
+            bounds(MsgraphRecurrenceRangeType::EndDate, None),
+            Some((start, Some("0001-01-01".into()))),
+        );
     }
 
     #[test]
