@@ -17,8 +17,9 @@
 //!   VTIMEZONE from the bundled database, and a zone neither table knows
 //!   keeps its name, undefined;
 //! - `showAs` rides the `X-MICROSOFT-CDO-BUSYSTATUS` property Outlook
-//!   itself writes, and the web link is minted read-only as
-//!   `X-MSGRAPH-WEB-LINK`;
+//!   itself writes; the web link is minted read-only as
+//!   `X-MSGRAPH-WEB-LINK`, and the join link of an online meeting as
+//!   `X-MICROSOFT-SKYPETEAMSMEETINGURL`, the property Outlook writes;
 //! - everything else, the UID among it, Graph minting its own `iCalUId`, is
 //!   stashed verbatim in a single-value extended property
 //!   ([`MSGRAPH_EVENT_STASH_ID`]) and spliced back on read; Graph returns it
@@ -106,7 +107,7 @@ pub const MSGRAPH_EVENT_ICAL_SELECT: &str = "id,iCalUId,changeKey,createdDateTim
      lastModifiedDateTime,type,seriesMasterId,originalStart,originalStartTimeZone,\
      originalEndTimeZone,subject,body,start,end,isAllDay,location,recurrence,attendees,\
      organizer,categories,showAs,sensitivity,importance,isReminderOn,\
-     reminderMinutesBeforeStart,isCancelled,webLink,cancelledOccurrences";
+     reminderMinutesBeforeStart,isCancelled,webLink,onlineMeeting,cancelledOccurrences";
 
 /// Product identifier the synthesized document carries.
 const PRODID: &str = "-//Pimalaya//io-msgraph//EN";
@@ -116,7 +117,10 @@ const PRODID: &str = "-//Pimalaya//io-msgraph//EN";
 const MAX_STASH_LINE: usize = 8 * 1024;
 
 /// Properties minted read-only from Graph-scoped fields, dropped on read.
-const MINTED_PROPS: &[&str] = &["X-MSGRAPH-WEB-LINK"];
+const MINTED_PROPS: &[&str] = &["X-MSGRAPH-WEB-LINK", TEAMS_MEETING_URL];
+
+/// The Outlook property carrying the join link of an online meeting.
+const TEAMS_MEETING_URL: &str = "X-MICROSOFT-SKYPETEAMSMEETINGURL";
 
 /// The Outlook busy status extension, carrying `showAs` both ways.
 const BUSY_STATUS: &str = "X-MICROSOFT-CDO-BUSYSTATUS";
@@ -727,8 +731,19 @@ fn vevent(
         vevent.push(IcalProp::text("X-MSGRAPH-WEB-LINK", vec![], link.clone()));
     }
 
+    if let Some(url) = event
+        .online_meeting
+        .as_ref()
+        .and_then(|meeting| meeting.join_url.as_deref())
+        .filter(|url| !url.is_empty())
+    {
+        vevent.push(IcalProp::text(TEAMS_MEETING_URL, vec![], url.to_owned()));
+    }
+
     for line in stash_lines(event) {
-        if is_uid_line(&line) {
+        // NOTE: a minted property stashed by an older version would
+        // come out twice.
+        if is_uid_line(&line) || is_minted_line(&line) {
             continue;
         }
         // NOTE: a line that no longer tokenises restores nothing rather
@@ -1502,6 +1517,14 @@ fn is_uid_line(line: &str) -> bool {
     name.eq_ignore_ascii_case("UID")
 }
 
+/// Whether a stashed line is a property minted from Graph-scoped fields.
+fn is_minted_line(line: &str) -> bool {
+    let name = line.split([';', ':']).next().unwrap_or_default();
+    MINTED_PROPS
+        .iter()
+        .any(|minted| name.eq_ignore_ascii_case(minted))
+}
+
 /// The decoded text of a property line.
 fn text(line: &IcalLine<'_>) -> String {
     IcalText::decode(&line.value).0.into_owned()
@@ -1964,6 +1987,36 @@ mod tests {
         assert!(back.contains("UID:urn:uuid:4fbe8971\r\n"), "{back}");
         assert!(!back.contains("UID:040000008200E0"), "{back}");
         assert!(back.contains("X-CUSTOM;X-P=1:kept\r\n"), "{back}");
+    }
+
+    #[test]
+    fn the_join_link_of_an_online_meeting_is_minted_read_only() {
+        let mut event = master();
+        event.online_meeting = Some(crate::v1::rest::users::events::MsgraphOnlineMeetingInfo {
+            join_url: Some("https://teams.x.org/l/1".into()),
+        });
+        // NOTE: a stash written before the property was minted.
+        event.single_value_extended_properties =
+            MsgraphField::Set(vec![MsgraphSingleValueExtendedProperty {
+                id: MSGRAPH_EVENT_STASH_ID.into(),
+                value: "X-MICROSOFT-SKYPETEAMSMEETINGURL:https://teams.x.org/l/0".into(),
+            }]);
+        let ical = event.to_ical();
+
+        assert!(
+            ical.contains("X-MICROSOFT-SKYPETEAMSMEETINGURL:https://teams.x.org/l/1\r\n"),
+            "{ical}"
+        );
+        assert!(!ical.contains("teams.x.org/l/0"), "{ical}");
+
+        let back = MsgraphEvent::from_ical(ical.as_bytes()).unwrap();
+        assert!(back.online_meeting.is_none());
+        assert!(
+            !stash_lines(&back)
+                .iter()
+                .any(|line| line.contains("SKYPETEAMS")),
+            "{back:?}"
+        );
     }
 
     #[test]

@@ -131,6 +131,9 @@ pub struct MsgraphEvent {
     /// The Outlook web link, read-only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_link: Option<String>,
+    /// The details to join an online meeting (Teams), read-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub online_meeting: Option<MsgraphOnlineMeetingInfo>,
     /// The occurrence ids (`OID.{seriesMasterId}.{date}`) of a series'
     /// cancelled occurrences, on a series master, read-only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -153,6 +156,15 @@ pub struct MsgraphDateTimeTimeZone {
     /// The zone the wall time is read in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_zone: Option<String>,
+}
+
+/// The details to join an online meeting, read-only.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MsgraphOnlineMeetingInfo {
+    /// The link to join the meeting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub join_url: Option<String>,
 }
 
 /// An event location.
