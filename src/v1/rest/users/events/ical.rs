@@ -20,6 +20,9 @@
 //!   itself writes; the web link is minted read-only as
 //!   `X-MSGRAPH-WEB-LINK`, and the join link of an online meeting as
 //!   `X-MICROSOFT-SKYPETEAMSMEETINGURL`, the property Outlook writes;
+//! - an invitation that came in by mail has Exchange's global object id
+//!   for `iCalUId`; when it wraps the organizer's UID (the `vCal-Uid`
+//!   form), that UID is the one projected ([`original_uid`]);
 //! - everything else, the UID among it, Graph minting its own `iCalUId`, is
 //!   stashed verbatim in a single-value extended property
 //!   ([`MSGRAPH_EVENT_STASH_ID`]) and spliced back on read; Graph returns it
@@ -151,7 +154,7 @@ impl MsgraphEvent {
             .collect();
         let uid = master
             .stashed_uid()
-            .or_else(|| master.ical_uid.clone())
+            .or_else(|| master.ical_uid.as_deref().map(original_uid))
             .unwrap_or_else(|| master.id.clone());
 
         let mut zones = BTreeSet::new();
@@ -1650,6 +1653,50 @@ fn importance_from_ical(value: &str) -> Option<MsgraphImportance> {
     }
 }
 
+/// The class id that opens every Exchange global object id
+/// ([MS-OXOCAL] §2.2.1.27, `PidLidGlobalObjectId`), hex-encoded.
+const GLOBAL_OBJECT_ID_CLASS: &str = "040000008200E00074C5B7101A82E008";
+
+/// The marker of a global object id that wraps an iCalendar UID Exchange
+/// did not mint ([MS-OXCICAL] §2.1.3.1.1.20.26).
+const VCAL_UID_MARKER: &[u8] = b"vCal-Uid\x01\x00\x00\x00";
+
+/// The iCalendar UID of a Graph `iCalUId`.
+///
+/// An invitation Exchange took in by mail is filed under its global object
+/// id, which wraps the organizer's UID (the `vCal-Uid` form) rather than
+/// keeping it: the wrapped UID is returned, so the event keeps the UID the
+/// organizer and every other attendee know it by. A global object id
+/// Exchange minted itself, with no UID inside, and any other value come
+/// back as they are.
+pub fn original_uid(ical_uid: &str) -> String {
+    unwrap_global_object_id(ical_uid).unwrap_or_else(|| ical_uid.to_owned())
+}
+
+fn unwrap_global_object_id(ical_uid: &str) -> Option<String> {
+    let class = ical_uid.get(..GLOBAL_OBJECT_ID_CLASS.len())?;
+    if !class.eq_ignore_ascii_case(GLOBAL_OBJECT_ID_CLASS) {
+        return None;
+    }
+    let rest = &ical_uid.as_bytes()[GLOBAL_OBJECT_ID_CLASS.len()..];
+    if !rest.len().is_multiple_of(2) {
+        return None;
+    }
+    let bytes = rest
+        .chunks(2)
+        .map(|pair| u8::from_str_radix(core::str::from_utf8(pair).ok()?, 16).ok())
+        .collect::<Option<Vec<u8>>>()?;
+    // After the class id: the instance date (4 bytes), the creation time
+    // (8), reserved (8), the size of the data (4), then the data.
+    let size = u32::from_le_bytes(bytes.get(20..24)?.try_into().ok()?) as usize;
+    let data = bytes.get(24..24usize.checked_add(size)?)?;
+    let uid = data.strip_prefix(VCAL_UID_MARKER)?;
+    let end = uid.iter().position(|byte| *byte == 0).unwrap_or(uid.len());
+    String::from_utf8(uid[..end].to_vec())
+        .ok()
+        .filter(|uid| !uid.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1782,6 +1829,51 @@ mod tests {
             "{ical}"
         );
         assert_eq!(ical.matches("RRULE:FREQ=WEEKLY").count(), 1, "{ical}");
+    }
+
+    /// A Google invitation as Microsoft 365 filed it, seen live: its global
+    /// object id wraps the organizer's UID.
+    const WRAPPED: &str = "040000008200E00074C5B7101A82E00800000000000000000000000000000000000000002D0000007643616C2D556964010000006D6F612D393839663030616435646236393839663030616435646236406D6F6100";
+
+    #[test]
+    fn a_global_object_id_gives_back_the_uid_it_wraps() {
+        let uid = "moa-989f00ad5db6989f00ad5db6@moa";
+        assert_eq!(original_uid(WRAPPED), uid);
+        assert_eq!(original_uid(&WRAPPED.to_lowercase()), uid);
+
+        // NOTE: Exchange's own id, nothing wrapped inside.
+        let minted = "040000008200E00074C5B7101A82E0080000000088DCD2137A53DD01000000000000000010000000F70EDDABBC4DD5439803DF5489114F0B";
+        assert_eq!(original_uid(minted), minted);
+        assert_eq!(original_uid("040000008200E0"), "040000008200E0");
+        assert_eq!(original_uid("urn:uuid:4fbe8971"), "urn:uuid:4fbe8971");
+        // NOTE: a size running past the end is not trusted.
+        assert_eq!(
+            original_uid(&WRAPPED[..WRAPPED.len() - 4]),
+            &WRAPPED[..WRAPPED.len() - 4]
+        );
+    }
+
+    #[test]
+    fn an_invitation_taken_in_by_mail_keeps_the_organizer_uid() {
+        let mut event = master();
+        event.ical_uid = Some(WRAPPED.into());
+        let exception = MsgraphEvent {
+            id: "EX1".into(),
+            ical_uid: Some(WRAPPED.into()),
+            event_type: Some(crate::v1::rest::users::events::MsgraphEventType::Exception),
+            series_master_id: Some("SM1".into()),
+            original_start: Some("2026-08-17T07:00:00Z".into()),
+            ..Default::default()
+        };
+
+        let ical = event.to_ical_series(&[&exception]);
+
+        assert_eq!(
+            ical.matches("UID:moa-989f00ad5db6989f00ad5db6@moa\r\n")
+                .count(),
+            2,
+            "{ical}"
+        );
     }
 
     #[test]

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- `to_ical` and `to_ical_series` project an invitation Exchange took in by mail under the organizer's UID: its `iCalUId` is a global object id that wraps that UID (the `vCal-Uid` form), which is now unwrapped (`ical::original_uid`). A global object id Exchange minted itself, with no UID inside, stays as it is. A store keyed on the UID sees such events change UID once.
+
 ## [0.4.6] - 2026-10-04
 
 ### Added
