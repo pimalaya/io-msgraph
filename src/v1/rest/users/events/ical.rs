@@ -452,6 +452,23 @@ impl MsgraphEvent {
         Ok(event)
     }
 
+    /// The RECURRENCE-ID value the projection gives the occurrence of this
+    /// series master that originally started at `original_start` (an
+    /// instance's `originalStart`): a date for an all-day series, the wall
+    /// time in the series' zone, or a UTC stamp when that zone is unknown.
+    ///
+    /// A consumer told an occurrence by its RECURRENCE-ID finds the Graph
+    /// instance with it, comparing values the way the projection wrote them.
+    pub fn recurrence_id_of(&self, original_start: &str) -> Option<String> {
+        let master = localized(self);
+        let prop = recurrence_id(&master, original_start, &mut BTreeSet::new())?;
+        match prop.value {
+            IcalValue::Date(date) => Some(date.0.into_owned()),
+            IcalValue::DateTime(stamp) => Some(stamp.0.into_owned()),
+            _ => None,
+        }
+    }
+
     /// The iCalendar UID the stash carries, `None` for an event no document
     /// was ever written to, Graph minting its own `iCalUId`.
     ///
@@ -1874,6 +1891,30 @@ mod tests {
             2,
             "{ical}"
         );
+    }
+
+    #[test]
+    fn an_occurrence_is_told_by_the_recurrence_id_the_projection_writes() {
+        // NOTE: 07:00 UTC is 09:00 in Paris in summer.
+        assert_eq!(
+            master().recurrence_id_of("2026-08-17T07:00:00Z").as_deref(),
+            Some("20260817T090000")
+        );
+        assert_eq!(
+            master()
+                .recurrence_id_of("2026-08-17T07:00:00.0000000Z")
+                .as_deref(),
+            Some("20260817T090000")
+        );
+
+        let mut all_day = master();
+        all_day.is_all_day = MsgraphField::Set(true);
+        assert_eq!(
+            all_day.recurrence_id_of("2026-08-17T00:00:00Z").as_deref(),
+            Some("20260817")
+        );
+
+        assert_eq!(master().recurrence_id_of("not a time"), None);
     }
 
     #[test]

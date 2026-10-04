@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added `MsgraphEvent::recurrence_id_of` (`ical` feature): the RECURRENCE-ID value the projection gives the occurrence of a series master that originally started at an instance's `originalStart`, so a consumer told an occurrence by its RECURRENCE-ID finds its Graph instance.
+
 ### Changed
 
 - `to_ical` and `to_ical_series` project an invitation Exchange took in by mail under the organizer's UID: its `iCalUId` is a global object id that wraps that UID (the `vCal-Uid` form), which is now unwrapped (`ical::original_uid`). A global object id Exchange minted itself, with no UID inside, stays as it is. A store keyed on the UID sees such events change UID once.
