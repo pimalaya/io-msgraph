@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-10-04
+
+### Added
+
+- Added `MsgraphEvent::online_meeting` (`onlineMeeting.joinUrl`, read-only), selected by `MSGRAPH_EVENT_ICAL_SELECT`. `to_ical` mints the join link of an online meeting as `X-MICROSOFT-SKYPETEAMSMEETINGURL`, the property Outlook writes, so a Teams link reaches the iCalendar document; `from_ical` drops it.
+
 ## [0.4.5] - 2026-10-03
 
 ### Added
@@ -122,7 +128,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added the contacts surface: contact folders and contacts, with delta.
 - Added `MsgraphClientStd` (`client` feature), a std blocking client with a `connect` constructor behind the TLS features.
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.5..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.6..HEAD
+[0.4.6]: https://github.com/pimalaya/io-msgraph/compare/v0.4.5..v0.4.6
 [0.4.5]: https://github.com/pimalaya/io-msgraph/compare/v0.4.4..v0.4.5
 [0.4.4]: https://github.com/pimalaya/io-msgraph/compare/v0.4.3..v0.4.4
 [0.4.3]: https://github.com/pimalaya/io-msgraph/compare/v0.4.2..v0.4.3
