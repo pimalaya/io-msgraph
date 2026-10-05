@@ -30,6 +30,9 @@ pub struct MsgraphMessage {
     /// The unique identifier of the message.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub id: String,
+    /// The version of the message, changing with every edit, read-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_key: Option<String>,
     /// The subject of the message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,

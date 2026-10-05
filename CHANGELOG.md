@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 
 - Added `MsgraphEvent::recurrence_id_of` (`ical` feature): the RECURRENCE-ID value the projection gives the occurrence of a series master that originally started at an instance's `originalStart`, so a consumer told an occurrence by its RECURRENCE-ID finds its Graph instance.
+- Added `MsgraphMessage::change_key`, the version of the message that every edit moves.
 
 ### Changed
 
