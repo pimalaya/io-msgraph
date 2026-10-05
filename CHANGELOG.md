@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-10-05
+
 ### Added
 
 - Added `MsgraphEvent::recurrence_id_of` (`ical` feature): the RECURRENCE-ID value the projection gives the occurrence of a series master that originally started at an instance's `originalStart`, so a consumer told an occurrence by its RECURRENCE-ID finds its Graph instance.
@@ -137,7 +139,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added the contacts surface: contact folders and contacts, with delta.
 - Added `MsgraphClientStd` (`client` feature), a std blocking client with a `connect` constructor behind the TLS features.
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.6..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.7..HEAD
+[0.4.7]: https://github.com/pimalaya/io-msgraph/compare/v0.4.6..v0.4.7
 [0.4.6]: https://github.com/pimalaya/io-msgraph/compare/v0.4.5..v0.4.6
 [0.4.5]: https://github.com/pimalaya/io-msgraph/compare/v0.4.4..v0.4.5
 [0.4.4]: https://github.com/pimalaya/io-msgraph/compare/v0.4.3..v0.4.4
