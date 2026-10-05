@@ -131,6 +131,11 @@ pub struct MsgraphEvent {
     /// The Outlook web link, read-only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_link: Option<String>,
+    /// Whether the event is an online meeting. Setting it makes Graph
+    /// create one with the calendar's default provider (Teams), whose
+    /// details then come back in `onlineMeeting`.
+    #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
+    pub is_online_meeting: MsgraphField<bool>,
     /// The details to join an online meeting (Teams), read-only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub online_meeting: Option<MsgraphOnlineMeetingInfo>,

@@ -18,8 +18,12 @@
 //!   keeps its name, undefined;
 //! - `showAs` rides the `X-MICROSOFT-CDO-BUSYSTATUS` property Outlook
 //!   itself writes; the web link is minted read-only as
-//!   `X-MSGRAPH-WEB-LINK`, and the join link of an online meeting as
-//!   `X-MICROSOFT-SKYPETEAMSMEETINGURL`, the property Outlook writes;
+//!   `X-MSGRAPH-WEB-LINK`, and the join link of an online meeting as a
+//!   standard `CONFERENCE` (RFC 7986 5.11);
+//! - `X-PIMDIR-ONLINE-MEETING:TRUE` (pimdir STORAGE Annex B.1) asks for
+//!   an online meeting: it sets `isOnlineMeeting`, Graph creating the
+//!   meeting with the calendar's default provider, and is never written
+//!   back;
 //! - an invitation that came in by mail has Exchange's global object id
 //!   for `iCalUId`; when it wraps the organizer's UID (the `vCal-Uid`
 //!   form), that UID is the one projected ([`original_uid`]);
@@ -120,10 +124,15 @@ const PRODID: &str = "-//Pimalaya//io-msgraph//EN";
 const MAX_STASH_LINE: usize = 8 * 1024;
 
 /// Properties minted read-only from Graph-scoped fields, dropped on read.
-const MINTED_PROPS: &[&str] = &["X-MSGRAPH-WEB-LINK", TEAMS_MEETING_URL];
+const MINTED_PROPS: &[&str] = &["X-MSGRAPH-WEB-LINK", "CONFERENCE", TEAMS_MEETING_URL];
 
-/// The Outlook property carrying the join link of an online meeting.
+/// The Outlook property the join link of an online meeting was minted as
+/// before CONFERENCE, still dropped from the documents a store kept since.
 const TEAMS_MEETING_URL: &str = "X-MICROSOFT-SKYPETEAMSMEETINGURL";
+
+/// The property asking the source for an online meeting of its provider
+/// (pimdir STORAGE Annex B.1).
+const ONLINE_MEETING: &str = "X-PIMDIR-ONLINE-MEETING";
 
 /// The Outlook busy status extension, carrying `showAs` both ways.
 const BUSY_STATUS: &str = "X-MICROSOFT-CDO-BUSYSTATUS";
@@ -217,6 +226,11 @@ impl MsgraphEvent {
                 IcalItem::Prop(line) => {
                     let name = line.name.get();
                     let consumed = if MINTED_PROPS.iter().any(|m| name.eq_ignore_ascii_case(m)) {
+                        true
+                    } else if name.eq_ignore_ascii_case(ONLINE_MEETING) {
+                        if line.raw_value_str().trim().eq_ignore_ascii_case("TRUE") {
+                            event.is_online_meeting = MsgraphField::Set(true);
+                        }
                         true
                     } else if name.eq_ignore_ascii_case(BUSY_STATUS) {
                         event.show_as =
@@ -446,6 +460,7 @@ impl MsgraphEvent {
             importance,
             is_reminder_on,
             reminder_minutes_before_start,
+            is_online_meeting,
             single_value_extended_properties,
         );
 
@@ -757,7 +772,14 @@ fn vevent(
         .and_then(|meeting| meeting.join_url.as_deref())
         .filter(|url| !url.is_empty())
     {
-        vevent.push(IcalProp::text(TEAMS_MEETING_URL, vec![], url.to_owned()));
+        vevent.push(IcalProp {
+            name: IcalPropName::Kind(IcalPropKind::Conference),
+            params: vec![
+                IcalParam::Value("URI".into()),
+                IcalParam::Feature(vec!["AUDIO".into(), "VIDEO".into()]),
+            ],
+            value: IcalValue::Uri(url.to_owned().into()),
+        });
     }
 
     for line in stash_lines(event) {
@@ -2137,19 +2159,59 @@ mod tests {
         let ical = event.to_ical();
 
         assert!(
-            ical.contains("X-MICROSOFT-SKYPETEAMSMEETINGURL:https://teams.x.org/l/1\r\n"),
+            ical.contains("CONFERENCE;VALUE=URI;FEATURE=AUDIO,VIDEO:https://teams.x.org/l/1\r\n"),
             "{ical}"
         );
+        assert!(!ical.contains("SKYPETEAMS"), "{ical}");
         assert!(!ical.contains("teams.x.org/l/0"), "{ical}");
 
         let back = MsgraphEvent::from_ical(ical.as_bytes()).unwrap();
         assert!(back.online_meeting.is_none());
+        assert!(back.is_online_meeting.is_unset());
         assert!(
             !stash_lines(&back)
                 .iter()
-                .any(|line| line.contains("SKYPETEAMS")),
+                .any(|line| line.contains("CONFERENCE") || line.contains("SKYPETEAMS")),
             "{back:?}"
         );
+    }
+
+    #[test]
+    fn an_online_meeting_asked_for_sets_is_online_meeting_once() {
+        let base = master().to_ical();
+        let asked = base.replace(
+            "SUMMARY:Stand-up\r\n",
+            "SUMMARY:Stand-up\r\nX-PIMDIR-ONLINE-MEETING:TRUE\r\n",
+        );
+        assert_ne!(asked, base);
+
+        let created = MsgraphEvent::from_ical(asked.as_bytes()).unwrap();
+        assert_eq!(created.is_online_meeting, MsgraphField::Set(true));
+        assert!(
+            !stash_lines(&created)
+                .iter()
+                .any(|line| line.contains("ONLINE-MEETING")),
+            "{created:?}"
+        );
+        let body = serde_json::to_value(&created).unwrap();
+        assert_eq!(body["isOnlineMeeting"], true);
+
+        let patch = MsgraphEvent::update_from_ical(asked.as_bytes(), base.as_bytes()).unwrap();
+        assert_eq!(patch.is_online_meeting, MsgraphField::Set(true));
+
+        // NOTE: a later edit of a document still asking leaves it alone.
+        let edited = asked.replace("SUMMARY:Stand-up", "SUMMARY:Daily");
+        let patch = MsgraphEvent::update_from_ical(edited.as_bytes(), asked.as_bytes()).unwrap();
+        assert!(patch.is_online_meeting.is_unset());
+
+        let declined = base.replace(
+            "SUMMARY:Stand-up\r\n",
+            "SUMMARY:Stand-up\r\nX-PIMDIR-ONLINE-MEETING:FALSE\r\n",
+        );
+        let event = MsgraphEvent::from_ical(declined.as_bytes()).unwrap();
+        assert!(event.is_online_meeting.is_unset());
+        let body = serde_json::to_value(&event).unwrap();
+        assert!(body.get("isOnlineMeeting").is_none());
     }
 
     #[test]

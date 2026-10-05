@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added `MsgraphEvent::is_online_meeting`. `from_ical` reads `X-PIMDIR-ONLINE-MEETING:TRUE` (pimdir STORAGE Annex B.1) as `isOnlineMeeting: true`, so Graph creates an online meeting with the calendar's default provider (Teams); `update_from_ical` sends it only when the base did not ask already. The property is never stashed.
+
+### Changed
+
+- `to_ical` mints the join link of an online meeting as a standard `CONFERENCE;VALUE=URI;FEATURE=AUDIO,VIDEO` (RFC 7986 5.11) instead of `X-MICROSOFT-SKYPETEAMSMEETINGURL`. `from_ical` drops both, the server value staying authoritative.
+
 ## [0.4.7] - 2026-10-05
 
 ### Added
