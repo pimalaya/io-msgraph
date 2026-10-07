@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 
 - Added `MsgraphEvent::is_online_meeting`. `from_ical` reads `X-PIMDIR-ONLINE-MEETING:TRUE` (pimdir STORAGE Annex B.1) as `isOnlineMeeting: true`, so Graph creates an online meeting with the calendar's default provider (Teams); `update_from_ical` sends it only when the base did not ask already. The property is never stashed.
+- Added page size preference (`Prefer: odata.maxpagesize={n}`): `MsgraphSend::max_page_size` (and `MsgraphSend::header`), and a `max_page_size` builder on `MsgraphMessagesDelta`, `MsgraphContactsDelta`, `MsgraphEventsDelta`, `MsgraphMessagesList`, `MsgraphContactsList` and `MsgraphEventsList`. Graph forgets it across pages, so it is chained on every `from_link` too. Client: `messages_delta_with_params`, `{messages,contacts,events}_delta_from_link_with_page_size`, `contacts_delta_with_page_size`, `events_delta_with_page_size`.
+- Added `MsgraphMessagesDeltaParams` (`$select`, `$filter` on `receivedDateTime`, page size) and `MsgraphMessagesDelta::with_params`.
 
 ### Changed
 
