@@ -33,7 +33,7 @@ use io_msgraph::v1::{
                 list::MsgraphAttachmentsList,
             },
             create_mime::MsgraphMessageCreateMime,
-            delta::MsgraphMessagesDelta,
+            delta::{MsgraphMessagesDelta, MsgraphMessagesDeltaParams},
             get_raw::MsgraphMessageGetRaw,
             list::MsgraphMessagesList,
             list::MsgraphMessagesListParams,
@@ -344,6 +344,118 @@ fn messages_delta_addresses_explicit_user() {
     let request = String::from_utf8_lossy(&written);
     assert!(
         request.starts_with("GET /v1.0/users/USER1/messages/delta"),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn messages_delta_prefers_page_size_on_first_and_next_requests() {
+    let params = MsgraphMessagesDeltaParams {
+        select: Some("id,subject,receivedDateTime"),
+        filter: Some("receivedDateTime ge 2026-01-01T00:00:00Z"),
+        max_page_size: Some(1000),
+    };
+    let mut coroutine =
+        MsgraphMessagesDelta::with_params(&auth(), "me", Some("inbox"), &params).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 200 OK", r#"{ "value": [] }"#),
+    );
+    assert!(result.is_ok());
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/mailFolders/inbox/messages/delta?"),
+        "got: {request}"
+    );
+    assert!(
+        request.contains("%24select=id%2Csubject%2CreceivedDateTime"),
+        "got: {request}"
+    );
+    assert!(
+        request.contains("%24filter=receivedDateTime+ge+2026-01-01T00%3A00%3A00Z"),
+        "got: {request}"
+    );
+    // NOTE: the page size is a header, never a query option
+    assert!(!request.contains("max_page_size"), "got: {request}");
+    assert!(
+        request.contains("\r\nPrefer: odata.maxpagesize=1000\r\n"),
+        "got: {request}"
+    );
+
+    let link =
+        "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$skiptoken=abc";
+    let mut coroutine = MsgraphMessagesDelta::from_link(&auth(), link)
+        .unwrap()
+        .max_page_size(1000);
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 200 OK", r#"{ "value": [] }"#),
+    );
+    assert!(result.is_ok());
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(request.contains("skiptoken=abc"), "got: {request}");
+    assert!(
+        request.contains("\r\nPrefer: odata.maxpagesize=1000\r\n"),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn messages_delta_prefers_nothing_unless_asked() {
+    let mut coroutine =
+        MsgraphMessagesDelta::new(&auth(), "me", Some("inbox"), Some("id")).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 200 OK", r#"{ "value": [] }"#),
+    );
+    assert!(result.is_ok());
+    let request = String::from_utf8_lossy(&written);
+    assert!(!request.contains("Prefer:"), "got: {request}");
+    assert!(!request.contains("%24filter"), "got: {request}");
+
+    let link = "https://graph.microsoft.com/v1.0/me/messages/delta?$skiptoken=abc";
+    let mut coroutine = MsgraphMessagesDelta::from_link(&auth(), link).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 200 OK", r#"{ "value": [] }"#),
+    );
+    assert!(result.is_ok());
+    let request = String::from_utf8_lossy(&written);
+    assert!(!request.contains("Prefer:"), "got: {request}");
+}
+
+#[test]
+fn contacts_and_events_delta_prefer_page_size_when_asked() {
+    use io_msgraph::v1::rest::users::events::delta::MsgraphEventsDelta;
+
+    let mut contacts = MsgraphContactsDelta::new(&auth(), "me", None, Some("id"))
+        .unwrap()
+        .max_page_size(500);
+    let (result, written) = run(
+        &mut contacts,
+        &json_response("HTTP/1.1 200 OK", r#"{ "value": [] }"#),
+    );
+    assert!(result.is_ok());
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.contains("\r\nPrefer: odata.maxpagesize=500\r\n"),
+        "got: {request}"
+    );
+
+    let link = "https://graph.microsoft.com/v1.0/me/calendarView/delta?$skiptoken=abc";
+    let mut events = MsgraphEventsDelta::from_link(&auth(), link)
+        .unwrap()
+        .max_page_size(200);
+    let (result, written) = run(
+        &mut events,
+        &json_response("HTTP/1.1 200 OK", r#"{ "value": [] }"#),
+    );
+    assert!(result.is_ok());
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.contains("\r\nPrefer: odata.maxpagesize=200\r\n"),
         "got: {request}"
     );
 }

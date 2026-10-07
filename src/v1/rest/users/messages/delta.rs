@@ -6,8 +6,11 @@
 //! ends with an `@odata.deltaLink`; feeding that link back through
 //! [`MsgraphMessagesDelta::from_link`] returns only what changed
 //! since. Changed rows carry the full message, or only the properties
-//! named by `$select`: the delta endpoint supports `$select` but
-//! neither `$filter` nor `$search`. Removals arrive as
+//! named by `$select`. The delta endpoint takes no `$search`, and a
+//! `$filter` only on the reception date (`receivedDateTime ge
+//! {instant}` or `gt`); see [`MsgraphMessagesDeltaParams`]. Pages
+//! hold 10 messages unless the request prefers more
+//! ([`MsgraphMessagesDelta::max_page_size`]). Removals arrive as
 //! `@removed`-marked rows carrying a reason. A round is over when
 //! `@odata.deltaLink` replaces `@odata.nextLink` in the page. An
 //! expired link answers HTTP 410; the consumer falls back to an
@@ -26,6 +29,7 @@ use crate::{
     coroutine::*,
     msgraph_try,
     v1::{
+        query::to_query_pairs,
         rest::users::{contacts::delta::MsgraphRemoved, messages::MsgraphMessage},
         send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
     },
@@ -60,6 +64,26 @@ pub struct MsgraphMessageDelta {
     pub removed: Option<MsgraphRemoved>,
 }
 
+/// OData options of a messages delta round, sent on its first request
+/// (the links Graph hands back carry them on).
+#[derive(Debug, Clone, Default, Serialize, Eq, PartialEq)]
+pub struct MsgraphMessagesDeltaParams<'a> {
+    /// Comma-separated properties to return (`$select`); the id always
+    /// rides along.
+    #[serde(rename = "$select")]
+    pub select: Option<&'a str>,
+    /// OData filter expression (`$filter`). The delta endpoint only
+    /// takes one on the reception date, such as
+    /// `receivedDateTime ge 2026-01-01T00:00:00Z`.
+    #[serde(rename = "$filter")]
+    pub filter: Option<&'a str>,
+    /// At most this many messages per page
+    /// (`Prefer: odata.maxpagesize`), a header rather than a query
+    /// option.
+    #[serde(skip)]
+    pub max_page_size: Option<u32>,
+}
+
 /// I/O-free coroutine for one messages delta request: the initial
 /// request through [`new`](Self::new), later pages and rounds through
 /// [`from_link`](Self::from_link).
@@ -79,8 +103,27 @@ impl MsgraphMessagesDelta {
         folder: Option<&str>,
         select: Option<&str>,
     ) -> Result<Self, MsgraphSendError> {
+        let params = MsgraphMessagesDeltaParams {
+            select,
+            ..Default::default()
+        };
+
+        Self::with_params(auth, user_id, folder, &params)
+    }
+
+    /// Starts a delta round like [`new`](Self::new), with the OData
+    /// options of `params`. Its page size, when set, goes on this first
+    /// request only: chain [`max_page_size`](Self::max_page_size) on
+    /// every [`from_link`](Self::from_link) of the round.
+    pub fn with_params(
+        auth: &HttpAuthBearer,
+        user_id: &str,
+        folder: Option<&str>,
+        params: &MsgraphMessagesDeltaParams,
+    ) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph messages delta");
         trace!("folder: {folder:?}");
+        trace!("params: {params:?}");
 
         let user = user_path(user_id);
         let path = match folder {
@@ -88,11 +131,12 @@ impl MsgraphMessagesDelta {
             None => format!("{user}/messages/delta"),
         };
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;
-        if let Some(select) = select {
-            url.query_pairs_mut().append_pair("$select", select);
-        }
+        url.query_pairs_mut().extend_pairs(to_query_pairs(params));
 
-        let send = MsgraphSend::get(auth, url);
+        let mut send = MsgraphSend::get(auth, url);
+        if let Some(size) = params.max_page_size {
+            send = send.max_page_size(size);
+        }
 
         Ok(Self { send })
     }
@@ -110,6 +154,16 @@ impl MsgraphMessagesDelta {
         let send = MsgraphSend::get(auth, url);
 
         Ok(Self { send })
+    }
+
+    /// Asks Graph for at most `size` items per page
+    /// (`Prefer: odata.maxpagesize={size}`), see
+    /// [`MsgraphSend::max_page_size`]. Graph keeps no memory of it
+    /// across pages: chain it on every page request, the ones built
+    /// from an `@odata.nextLink` included.
+    pub fn max_page_size(mut self, size: u32) -> Self {
+        self.send = self.send.max_page_size(size);
+        self
     }
 }
 

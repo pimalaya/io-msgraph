@@ -240,9 +240,31 @@ impl<T: DeserializeOwned> MsgraphSend<T> {
         trace!("url: {url}");
 
         Self {
-            state: State::Send(Http11Send::new(request)),
+            state: State::Prepare(request),
             _phantom: PhantomData,
         }
+    }
+
+    /// Adds a header to the request.
+    ///
+    /// Only effective before the first
+    /// [`resume`](MsgraphCoroutine::resume), which serializes the
+    /// request: a header added later is ignored.
+    pub fn header(mut self, name: impl ToString, value: impl ToString) -> Self {
+        if let State::Prepare(request) = &mut self.state {
+            request.headers.push((name.to_string(), value.to_string()));
+        }
+        self
+    }
+
+    /// Asks Graph for at most `size` items per page of a paged
+    /// collection (`Prefer: odata.maxpagesize={size}`).
+    ///
+    /// The preference rides on one request only: a caller following
+    /// `@odata.nextLink` asks again on every page. Graph may serve
+    /// fewer items than asked, and caps the size per endpoint.
+    pub fn max_page_size(self, size: u32) -> Self {
+        self.header("Prefer", format!("odata.maxpagesize={size}"))
     }
 }
 
@@ -251,7 +273,14 @@ impl<T: DeserializeOwned> MsgraphCoroutine for MsgraphSend<T> {
     type Return = Result<MsgraphSendOutput<T>, MsgraphSendError>;
 
     fn resume(&mut self, arg: Option<&[u8]>) -> MsgraphCoroutineState<Self::Yield, Self::Return> {
+        if let State::Prepare(request) = &mut self.state {
+            let url = request.url.clone();
+            let request = core::mem::replace(request, HttpRequest::get(url));
+            self.state = State::Send(Http11Send::new(request));
+        }
+
         match &mut self.state {
+            State::Prepare(_) => unreachable!("the request is sent on the first resume"),
             State::Send(send) => match send.resume(arg) {
                 HttpCoroutineState::Yielded(HttpSendYield::WantsRead) => {
                     MsgraphCoroutineState::Yielded(MsgraphYield::WantsRead)
@@ -304,6 +333,8 @@ impl<T: DeserializeOwned> MsgraphCoroutine for MsgraphSend<T> {
 }
 
 enum State {
+    /// The request, open to more headers until the first resume.
+    Prepare(HttpRequest),
     Send(Http11Send),
 }
 

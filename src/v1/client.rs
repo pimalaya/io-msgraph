@@ -123,7 +123,9 @@ use crate::{
             create::MsgraphMessageCreate,
             create_mime::MsgraphMessageCreateMime,
             delete::MsgraphMessageDelete,
-            delta::{MsgraphMessagesDelta, MsgraphMessagesDeltaResponse},
+            delta::{
+                MsgraphMessagesDelta, MsgraphMessagesDeltaParams, MsgraphMessagesDeltaResponse,
+            },
             get::MsgraphMessageGet,
             get_raw::MsgraphMessageGetRaw,
             list::{MsgraphMessagesList, MsgraphMessagesListParams, MsgraphMessagesListResponse},
@@ -628,6 +630,37 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Starts a contacts delta round like
+    /// [`contacts_delta`](Self::contacts_delta), asking for at most
+    /// `max_page_size` contacts per page when given.
+    pub fn contacts_delta_with_page_size(
+        &mut self,
+        folder: Option<&str>,
+        select: Option<&str>,
+        max_page_size: Option<u32>,
+    ) -> Result<MsgraphSendOutput<MsgraphContactsDeltaResponse>, MsgraphClientStdError> {
+        let mut coroutine = MsgraphContactsDelta::new(&self.auth, &self.user_id, folder, select)?;
+        if let Some(size) = max_page_size {
+            coroutine = coroutine.max_page_size(size);
+        }
+        self.run(coroutine)
+    }
+
+    /// Follows a contacts delta link like
+    /// [`contacts_delta_from_link`](Self::contacts_delta_from_link),
+    /// asking for at most `max_page_size` items per page when given.
+    pub fn contacts_delta_from_link_with_page_size(
+        &mut self,
+        link: &str,
+        max_page_size: Option<u32>,
+    ) -> Result<MsgraphSendOutput<MsgraphContactsDeltaResponse>, MsgraphClientStdError> {
+        let mut coroutine = MsgraphContactsDelta::from_link(&self.auth, link)?;
+        if let Some(size) = max_page_size {
+            coroutine = coroutine.max_page_size(size);
+        }
+        self.run(coroutine)
+    }
+
     /// Lists the user's calendars.
     pub fn calendars_list(
         &mut self,
@@ -782,6 +815,39 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
+    /// Starts a calendar view delta round like
+    /// [`events_delta`](Self::events_delta), asking for at most
+    /// `max_page_size` events per page when given.
+    pub fn events_delta_with_page_size(
+        &mut self,
+        calendar: Option<&str>,
+        start: &str,
+        end: &str,
+        max_page_size: Option<u32>,
+    ) -> Result<MsgraphSendOutput<MsgraphEventsDeltaResponse>, MsgraphClientStdError> {
+        let mut coroutine =
+            MsgraphEventsDelta::new(&self.auth, &self.user_id, calendar, start, end)?;
+        if let Some(size) = max_page_size {
+            coroutine = coroutine.max_page_size(size);
+        }
+        self.run(coroutine)
+    }
+
+    /// Follows a calendar view delta link like
+    /// [`events_delta_from_link`](Self::events_delta_from_link),
+    /// asking for at most `max_page_size` items per page when given.
+    pub fn events_delta_from_link_with_page_size(
+        &mut self,
+        link: &str,
+        max_page_size: Option<u32>,
+    ) -> Result<MsgraphSendOutput<MsgraphEventsDeltaResponse>, MsgraphClientStdError> {
+        let mut coroutine = MsgraphEventsDelta::from_link(&self.auth, link)?;
+        if let Some(size) = max_page_size {
+            coroutine = coroutine.max_page_size(size);
+        }
+        self.run(coroutine)
+    }
+
     /// Lists the messages of the whole mailbox, or of the given mail
     /// folder.
     pub fn messages_list(
@@ -890,6 +956,33 @@ impl MsgraphClientStd {
         link: &str,
     ) -> Result<MsgraphSendOutput<MsgraphMessagesDeltaResponse>, MsgraphClientStdError> {
         let coroutine = MsgraphMessagesDelta::from_link(&self.auth, link)?;
+        self.run(coroutine)
+    }
+
+    /// Starts a messages delta round with the OData options and page
+    /// size of `params`.
+    pub fn messages_delta_with_params(
+        &mut self,
+        folder: Option<&str>,
+        params: &MsgraphMessagesDeltaParams,
+    ) -> Result<MsgraphSendOutput<MsgraphMessagesDeltaResponse>, MsgraphClientStdError> {
+        let coroutine =
+            MsgraphMessagesDelta::with_params(&self.auth, &self.user_id, folder, params)?;
+        self.run(coroutine)
+    }
+
+    /// Follows a messages delta link like
+    /// [`messages_delta_from_link`](Self::messages_delta_from_link),
+    /// asking for at most `max_page_size` messages per page when given.
+    pub fn messages_delta_from_link_with_page_size(
+        &mut self,
+        link: &str,
+        max_page_size: Option<u32>,
+    ) -> Result<MsgraphSendOutput<MsgraphMessagesDeltaResponse>, MsgraphClientStdError> {
+        let mut coroutine = MsgraphMessagesDelta::from_link(&self.auth, link)?;
+        if let Some(size) = max_page_size {
+            coroutine = coroutine.max_page_size(size);
+        }
         self.run(coroutine)
     }
 

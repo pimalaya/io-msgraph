@@ -99,6 +99,16 @@ impl MsgraphEventsList {
 
         Ok(Self { send })
     }
+
+    /// Asks Graph for at most `size` items per page
+    /// (`Prefer: odata.maxpagesize={size}`), see
+    /// [`MsgraphSend::max_page_size`]. Graph keeps no memory of it
+    /// across pages: chain it on every page request, the ones built
+    /// from an `@odata.nextLink` included.
+    pub fn max_page_size(mut self, size: u32) -> Self {
+        self.send = self.send.max_page_size(size);
+        self
+    }
 }
 
 impl MsgraphCoroutine for MsgraphEventsList {
