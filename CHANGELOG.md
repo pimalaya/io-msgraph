@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-09
+
 ### Added
 
 - Added `MsgraphEvent::instance_update_from_ical` (`ical` feature): the update body of the Graph instance of one occurrence, from a document holding that occurrence alone (an override, or the series' component carried to it to revert an exception) against one holding it as Graph does, `None` when nothing differs. The recurrence and the stash stay on the master. `from_ical` still writes the master alone.
@@ -15,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- Bumped ical-rs to 0.6, whose `IcalParseError` `MsgraphEventIcalError::Parse` carries. Lines built from Graph are folded at 75 octets. **Breaking.**
 - `from_ical` consumes EXDATE instead of stashing it: Graph mints the EXDATEs from `cancelledOccurrences`, which only the deletion of an instance writes, so a stashed copy doubled them on read and outlived an occurrence Graph never removed.
 - `to_ical` mints the join link of an online meeting as a standard `CONFERENCE;VALUE=URI;FEATURE=AUDIO,VIDEO` (RFC 7986 5.11) instead of `X-MICROSOFT-SKYPETEAMSMEETINGURL`. `from_ical` drops both, the server value staying authoritative.
 
@@ -151,7 +154,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added the contacts surface: contact folders and contacts, with delta.
 - Added `MsgraphClientStd` (`client` feature), a std blocking client with a `connect` constructor behind the TLS features.
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.4.7..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.5.0..HEAD
+[0.5.0]: https://github.com/pimalaya/io-msgraph/compare/v0.4.7..v0.5.0
 [0.4.7]: https://github.com/pimalaya/io-msgraph/compare/v0.4.6..v0.4.7
 [0.4.6]: https://github.com/pimalaya/io-msgraph/compare/v0.4.5..v0.4.6
 [0.4.5]: https://github.com/pimalaya/io-msgraph/compare/v0.4.4..v0.4.5
