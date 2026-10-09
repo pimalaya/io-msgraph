@@ -32,9 +32,12 @@
 //!   ([`MSGRAPH_EVENT_STASH_ID`]) and spliced back on read; Graph returns it
 //!   only expanded ([`MSGRAPH_EVENT_STASH_EXPAND`]).
 //!
-//! Only the series master is written back: an exception edited locally, a
-//! cancelled occurrence and an EXDATE do not push, Graph taking them only
-//! through the occurrence itself.
+//! A write of a document goes to the series master alone: an exception
+//! edited locally, a cancelled occurrence and an EXDATE do not push with
+//! it, Graph taking them only through the occurrence itself, an instance
+//! of the series. [`MsgraphEvent::instance_update_from_ical`] projects one
+//! occurrence onto the update of its instance, and a consumer deletes the
+//! instance of an occurrence the document cancels.
 
 mod windows_zones;
 
@@ -192,219 +195,13 @@ impl MsgraphEvent {
     /// managed field is Set from the series master or Null when absent,
     /// while Graph-only fields stay Unset.
     ///
-    /// The exceptions of a series are not read: Graph takes them through
-    /// the occurrence itself.
+    /// The exceptions of a series are not read: Graph takes each through
+    /// its instance ([`Self::instance_update_from_ical`]).
     pub fn from_ical(contents: &[u8]) -> Result<Self, MsgraphEventIcalError> {
         let calendar = IcalCst::parse(contents).map_err(MsgraphEventIcalError::Parse)?;
-        let vevent = master_vevent(&calendar)?;
-
-        let mut event = MsgraphEvent {
-            subject: MsgraphField::Null,
-            body: MsgraphField::Null,
-            location: MsgraphField::Null,
-            recurrence: MsgraphField::Null,
-            attendees: MsgraphField::Set(Vec::new()),
-            categories: MsgraphField::Set(Vec::new()),
-            show_as: MsgraphField::Null,
-            sensitivity: MsgraphField::Null,
-            importance: MsgraphField::Null,
-            is_reminder_on: MsgraphField::Set(false),
-            ..Default::default()
-        };
-
-        let mut description = None;
-        let mut html = None;
-        let mut start = None;
-        let mut end = None;
-        let mut duration = None;
-        let mut transparent = None;
-        let mut rrule = None;
-        let mut stash = Vec::new();
-
-        for item in &vevent.items {
-            match item {
-                IcalItem::Prop(line) => {
-                    let name = line.name.get();
-                    let consumed = if MINTED_PROPS.iter().any(|m| name.eq_ignore_ascii_case(m)) {
-                        true
-                    } else if name.eq_ignore_ascii_case(ONLINE_MEETING) {
-                        if line.raw_value_str().trim().eq_ignore_ascii_case("TRUE") {
-                            event.is_online_meeting = MsgraphField::Set(true);
-                        }
-                        true
-                    } else if name.eq_ignore_ascii_case(BUSY_STATUS) {
-                        event.show_as =
-                            MsgraphField::set_or_null(busy_status_from_ical(&line.raw_value_str()));
-                        true
-                    } else if name.eq_ignore_ascii_case(ALT_DESC)
-                        && line
-                            .param::<FMTTYPE>()
-                            .is_some_and(|kind| kind.eq_ignore_ascii_case("text/html"))
-                    {
-                        html = Some(text(line));
-                        true
-                    } else {
-                        match name.parse::<IcalPropKind>() {
-                            Ok(IcalPropKind::Summary) => {
-                                event.subject = MsgraphField::Set(text(line));
-                                true
-                            }
-                            Ok(IcalPropKind::Description) => {
-                                description = Some(text(line));
-                                true
-                            }
-                            Ok(IcalPropKind::Location) => {
-                                event.location = MsgraphField::Set(MsgraphLocation {
-                                    display_name: Some(text(line)),
-                                    ..Default::default()
-                                });
-                                true
-                            }
-                            Ok(IcalPropKind::DtStart) => {
-                                start = Some(boundary(line));
-                                true
-                            }
-                            Ok(IcalPropKind::DtEnd) => {
-                                end = Some(boundary(line));
-                                true
-                            }
-                            Ok(IcalPropKind::Duration) => {
-                                duration = line.raw_value_str().trim().parse::<Span>().ok();
-                                duration.is_some()
-                            }
-                            Ok(IcalPropKind::RRule) => {
-                                rrule = Some(IcalRecur::decode(&line.value).0.trim().to_owned());
-                                true
-                            }
-                            Ok(IcalPropKind::Categories) => {
-                                let list = IcalTextList::decode(&line.value);
-                                if let MsgraphField::Set(categories) = &mut event.categories {
-                                    categories.extend(list.0.into_iter().map(Cow::into_owned));
-                                }
-                                true
-                            }
-                            Ok(IcalPropKind::Class) => {
-                                event.sensitivity = MsgraphField::set_or_null(
-                                    sensitivity_from_ical(&line.raw_value_str()),
-                                );
-                                true
-                            }
-                            Ok(IcalPropKind::Priority) => {
-                                event.importance = MsgraphField::set_or_null(importance_from_ical(
-                                    &line.raw_value_str(),
-                                ));
-                                true
-                            }
-                            Ok(IcalPropKind::Transp) => {
-                                transparent = Some(
-                                    line.raw_value_str()
-                                        .trim()
-                                        .eq_ignore_ascii_case("TRANSPARENT"),
-                                );
-                                true
-                            }
-                            Ok(IcalPropKind::Attendee) => {
-                                if let MsgraphField::Set(attendees) = &mut event.attendees {
-                                    attendees.push(attendee(line));
-                                }
-                                true
-                            }
-                            // NOTE: Graph sets the organizer, the status and
-                            // the stamps itself, so an incoming value is
-                            // consumed rather than stashed.
-                            Ok(
-                                IcalPropKind::Organizer
-                                | IcalPropKind::Status
-                                | IcalPropKind::DtStamp
-                                | IcalPropKind::Created
-                                | IcalPropKind::LastModified
-                                | IcalPropKind::Sequence,
-                            ) => true,
-                            _ => false,
-                        }
-                    };
-
-                    if !consumed {
-                        let raw = raw_line(line);
-                        if raw.len() <= MAX_STASH_LINE {
-                            stash.push(raw);
-                        }
-                    }
-                }
-                IcalItem::Component(alarm) => {
-                    let reminder = reminder_minutes(alarm);
-                    match (&event.reminder_minutes_before_start, reminder) {
-                        (MsgraphField::Unset, Some(minutes)) => {
-                            event.is_reminder_on = MsgraphField::Set(true);
-                            event.reminder_minutes_before_start = MsgraphField::Set(minutes);
-                        }
-                        _ => stash.extend(raw_component(alarm)),
-                    }
-                }
-                IcalItem::Opaque(bytes) => stash.push(String::from_utf8_lossy(bytes).into_owned()),
-            }
-        }
-
-        let Some(Some(start)) = start else {
-            return Err(MsgraphEventIcalError::NoZonedStart);
-        };
-        let end = match (end, duration) {
-            (Some(Some(end)), _) => end,
-            (_, Some(duration)) => start
-                .shifted(duration)
-                .ok_or(MsgraphEventIcalError::NoEnd)?,
-            _ => return Err(MsgraphEventIcalError::NoEnd),
-        };
-
-        event.is_all_day = MsgraphField::Set(start.all_day);
-        if let Some(rule) = &rrule {
-            event.recurrence = MsgraphField::Set(recurrence(rule, &start)?);
-        }
-        event.start = MsgraphField::Set(start.into_graph());
-        event.end = MsgraphField::Set(end.into_graph());
-
-        event.body = match (html, description) {
-            // NOTE: the text is what an editor changes, so an HTML copy
-            // it no longer matches is stale and must not win.
-            (Some(html), Some(content)) if !same_text(&strip_html(&html), &content) => {
-                MsgraphField::Set(MsgraphItemBody {
-                    content_type: Some(MsgraphBodyType::Text),
-                    content: Some(content),
-                })
-            }
-            (Some(content), _) => MsgraphField::Set(MsgraphItemBody {
-                content_type: Some(MsgraphBodyType::Html),
-                content: Some(content),
-            }),
-            (None, Some(content)) => MsgraphField::Set(MsgraphItemBody {
-                content_type: Some(MsgraphBodyType::Text),
-                content: Some(content),
-            }),
-            // NOTE: Graph refuses a null body, an empty text one is how
-            // it clears.
-            (None, None) => MsgraphField::Set(MsgraphItemBody {
-                content_type: Some(MsgraphBodyType::Text),
-                content: Some(String::new()),
-            }),
-        };
-
-        if matches!(event.show_as, MsgraphField::Null) {
-            event.show_as = match transparent {
-                Some(true) => MsgraphField::Set(MsgraphFreeBusyStatus::Free),
-                Some(false) => MsgraphField::Set(MsgraphFreeBusyStatus::Busy),
-                None => MsgraphField::Null,
-            };
-        }
-
-        // NOTE: the stash entry is always Set (empty when nothing is left),
-        // so an update can tell a cleared stash from an unchanged one.
-        event.single_value_extended_properties =
-            MsgraphField::Set(vec![MsgraphSingleValueExtendedProperty {
-                id: MSGRAPH_EVENT_STASH_ID.to_string(),
-                value: stash.join("\n"),
-            }]);
-
-        Ok(event)
+        project(find_vevent(&calendar, |vevent| {
+            !has_prop(vevent, "RECURRENCE-ID")
+        })?)
     }
 
     /// Projects an iCalendar document onto a create body: the full-state
@@ -432,18 +229,48 @@ impl MsgraphEvent {
     /// ones left Unset and out of the PATCH.
     pub fn update_from_ical(contents: &[u8], base: &[u8]) -> Result<Self, MsgraphEventIcalError> {
         let mut event = Self::from_ical(contents)?;
-        let base = Self::from_ical(base)?;
+        event.unset_unchanged(&Self::from_ical(base)?);
+        Ok(event)
+    }
 
+    /// Projects one occurrence of a series onto the update body of its
+    /// Graph instance: the fields it sets differently from `base`, the
+    /// occurrence as Graph holds it; `None` when the two agree.
+    ///
+    /// Each document holds that occurrence alone, as its first VEVENT: an
+    /// override with its RECURRENCE-ID, or the series' own component
+    /// carried to the occurrence, which is what reverts an exception.
+    /// Neither the recurrence nor the stash is sent, Graph keeping both on
+    /// the series master.
+    pub fn instance_update_from_ical(
+        contents: &[u8],
+        base: &[u8],
+    ) -> Result<Option<Self>, MsgraphEventIcalError> {
+        let occurrence = |contents| {
+            let calendar = IcalCst::parse(contents).map_err(MsgraphEventIcalError::Parse)?;
+            project(find_vevent(&calendar, |_| true)?)
+        };
+
+        let mut event = occurrence(contents)?;
+        event.unset_unchanged(&occurrence(base)?);
+        event.recurrence = MsgraphField::Unset;
+        event.single_value_extended_properties = MsgraphField::Unset;
+
+        Ok((event != Self::default()).then_some(event))
+    }
+
+    /// Leaves Unset every managed field `base` holds the same.
+    fn unset_unchanged(&mut self, base: &Self) {
         macro_rules! unset_unchanged {
             ($($field:ident),* $(,)?) => {$(
-                if event.$field == base.$field {
-                    event.$field = MsgraphField::Unset;
+                if self.$field == base.$field {
+                    self.$field = MsgraphField::Unset;
                 }
             )*};
         }
 
-        if same_text(&body_text(&event.body), &body_text(&base.body)) {
-            event.body = MsgraphField::Unset;
+        if same_text(&body_text(&self.body), &body_text(&base.body)) {
+            self.body = MsgraphField::Unset;
         }
 
         unset_unchanged!(
@@ -463,8 +290,6 @@ impl MsgraphEvent {
             is_online_meeting,
             single_value_extended_properties,
         );
-
-        Ok(event)
     }
 
     /// The RECURRENCE-ID value the projection gives the occurrence of this
@@ -589,6 +414,221 @@ impl fmt::Display for MsgraphEventIcalError {
 }
 
 impl core::error::Error for MsgraphEventIcalError {}
+
+/// Projects one VEVENT onto an event, in full state.
+fn project(vevent: &IcalCst<'_>) -> Result<MsgraphEvent, MsgraphEventIcalError> {
+    let mut event = MsgraphEvent {
+        subject: MsgraphField::Null,
+        body: MsgraphField::Null,
+        location: MsgraphField::Null,
+        recurrence: MsgraphField::Null,
+        attendees: MsgraphField::Set(Vec::new()),
+        categories: MsgraphField::Set(Vec::new()),
+        show_as: MsgraphField::Null,
+        sensitivity: MsgraphField::Null,
+        importance: MsgraphField::Null,
+        is_reminder_on: MsgraphField::Set(false),
+        ..Default::default()
+    };
+
+    let mut description = None;
+    let mut html = None;
+    let mut start = None;
+    let mut end = None;
+    let mut duration = None;
+    let mut transparent = None;
+    let mut rrule = None;
+    let mut stash = Vec::new();
+
+    for item in &vevent.items {
+        match item {
+            IcalItem::Prop(line) => {
+                let name = line.name.get();
+                let consumed = if MINTED_PROPS.iter().any(|m| name.eq_ignore_ascii_case(m)) {
+                    true
+                } else if name.eq_ignore_ascii_case(ONLINE_MEETING) {
+                    if line.raw_value_str().trim().eq_ignore_ascii_case("TRUE") {
+                        event.is_online_meeting = MsgraphField::Set(true);
+                    }
+                    true
+                } else if name.eq_ignore_ascii_case(BUSY_STATUS) {
+                    event.show_as =
+                        MsgraphField::set_or_null(busy_status_from_ical(&line.raw_value_str()));
+                    true
+                } else if name.eq_ignore_ascii_case(ALT_DESC)
+                    && line
+                        .param::<FMTTYPE>()
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case("text/html"))
+                {
+                    html = Some(text(line));
+                    true
+                } else {
+                    match name.parse::<IcalPropKind>() {
+                        Ok(IcalPropKind::Summary) => {
+                            event.subject = MsgraphField::Set(text(line));
+                            true
+                        }
+                        Ok(IcalPropKind::Description) => {
+                            description = Some(text(line));
+                            true
+                        }
+                        Ok(IcalPropKind::Location) => {
+                            event.location = MsgraphField::Set(MsgraphLocation {
+                                display_name: Some(text(line)),
+                                ..Default::default()
+                            });
+                            true
+                        }
+                        Ok(IcalPropKind::DtStart) => {
+                            start = Some(boundary(line));
+                            true
+                        }
+                        Ok(IcalPropKind::DtEnd) => {
+                            end = Some(boundary(line));
+                            true
+                        }
+                        Ok(IcalPropKind::Duration) => {
+                            duration = line.raw_value_str().trim().parse::<Span>().ok();
+                            duration.is_some()
+                        }
+                        Ok(IcalPropKind::RRule) => {
+                            rrule = Some(IcalRecur::decode(&line.value).0.trim().to_owned());
+                            true
+                        }
+                        // NOTE: Graph mints the EXDATEs from the cancelled
+                        // occurrences, which only a deletion of the
+                        // instance writes; a stashed copy would outlive it.
+                        Ok(IcalPropKind::ExDate) => true,
+                        Ok(IcalPropKind::Categories) => {
+                            let list = IcalTextList::decode(&line.value);
+                            if let MsgraphField::Set(categories) = &mut event.categories {
+                                categories.extend(list.0.into_iter().map(Cow::into_owned));
+                            }
+                            true
+                        }
+                        Ok(IcalPropKind::Class) => {
+                            event.sensitivity = MsgraphField::set_or_null(sensitivity_from_ical(
+                                &line.raw_value_str(),
+                            ));
+                            true
+                        }
+                        Ok(IcalPropKind::Priority) => {
+                            event.importance = MsgraphField::set_or_null(importance_from_ical(
+                                &line.raw_value_str(),
+                            ));
+                            true
+                        }
+                        Ok(IcalPropKind::Transp) => {
+                            transparent = Some(
+                                line.raw_value_str()
+                                    .trim()
+                                    .eq_ignore_ascii_case("TRANSPARENT"),
+                            );
+                            true
+                        }
+                        Ok(IcalPropKind::Attendee) => {
+                            if let MsgraphField::Set(attendees) = &mut event.attendees {
+                                attendees.push(attendee(line));
+                            }
+                            true
+                        }
+                        // NOTE: Graph sets the organizer, the status and
+                        // the stamps itself, so an incoming value is
+                        // consumed rather than stashed.
+                        Ok(
+                            IcalPropKind::Organizer
+                            | IcalPropKind::Status
+                            | IcalPropKind::DtStamp
+                            | IcalPropKind::Created
+                            | IcalPropKind::LastModified
+                            | IcalPropKind::Sequence,
+                        ) => true,
+                        _ => false,
+                    }
+                };
+
+                if !consumed {
+                    let raw = raw_line(line);
+                    if raw.len() <= MAX_STASH_LINE {
+                        stash.push(raw);
+                    }
+                }
+            }
+            IcalItem::Component(alarm) => {
+                let reminder = reminder_minutes(alarm);
+                match (&event.reminder_minutes_before_start, reminder) {
+                    (MsgraphField::Unset, Some(minutes)) => {
+                        event.is_reminder_on = MsgraphField::Set(true);
+                        event.reminder_minutes_before_start = MsgraphField::Set(minutes);
+                    }
+                    _ => stash.extend(raw_component(alarm)),
+                }
+            }
+            IcalItem::Opaque(bytes) => stash.push(String::from_utf8_lossy(bytes).into_owned()),
+        }
+    }
+
+    let Some(Some(start)) = start else {
+        return Err(MsgraphEventIcalError::NoZonedStart);
+    };
+    let end = match (end, duration) {
+        (Some(Some(end)), _) => end,
+        (_, Some(duration)) => start
+            .shifted(duration)
+            .ok_or(MsgraphEventIcalError::NoEnd)?,
+        _ => return Err(MsgraphEventIcalError::NoEnd),
+    };
+
+    event.is_all_day = MsgraphField::Set(start.all_day);
+    if let Some(rule) = &rrule {
+        event.recurrence = MsgraphField::Set(recurrence(rule, &start)?);
+    }
+    event.start = MsgraphField::Set(start.into_graph());
+    event.end = MsgraphField::Set(end.into_graph());
+
+    event.body = match (html, description) {
+        // NOTE: the text is what an editor changes, so an HTML copy
+        // it no longer matches is stale and must not win.
+        (Some(html), Some(content)) if !same_text(&strip_html(&html), &content) => {
+            MsgraphField::Set(MsgraphItemBody {
+                content_type: Some(MsgraphBodyType::Text),
+                content: Some(content),
+            })
+        }
+        (Some(content), _) => MsgraphField::Set(MsgraphItemBody {
+            content_type: Some(MsgraphBodyType::Html),
+            content: Some(content),
+        }),
+        (None, Some(content)) => MsgraphField::Set(MsgraphItemBody {
+            content_type: Some(MsgraphBodyType::Text),
+            content: Some(content),
+        }),
+        // NOTE: Graph refuses a null body, an empty text one is how
+        // it clears.
+        (None, None) => MsgraphField::Set(MsgraphItemBody {
+            content_type: Some(MsgraphBodyType::Text),
+            content: Some(String::new()),
+        }),
+    };
+
+    if matches!(event.show_as, MsgraphField::Null) {
+        event.show_as = match transparent {
+            Some(true) => MsgraphField::Set(MsgraphFreeBusyStatus::Free),
+            Some(false) => MsgraphField::Set(MsgraphFreeBusyStatus::Busy),
+            None => MsgraphField::Null,
+        };
+    }
+
+    // NOTE: the stash entry is always Set (empty when nothing is left),
+    // so an update can tell a cleared stash from an unchanged one.
+    event.single_value_extended_properties =
+        MsgraphField::Set(vec![MsgraphSingleValueExtendedProperty {
+            id: MSGRAPH_EVENT_STASH_ID.to_string(),
+            value: stash.join("\n"),
+        }]);
+
+    Ok(event)
+}
 
 /// Builds one VEVENT; `master` is the series of an exception.
 fn vevent(
@@ -1312,8 +1352,12 @@ fn recurrence(
     })
 }
 
-/// The master VEVENT of a document: the one without a RECURRENCE-ID.
-fn master_vevent<'a>(calendar: &'a IcalCst<'a>) -> Result<&'a IcalCst<'a>, MsgraphEventIcalError> {
+/// The first VEVENT of a document that `pick` accepts: the master is the
+/// one without a RECURRENCE-ID.
+fn find_vevent<'a>(
+    calendar: &'a IcalCst<'a>,
+    pick: impl Fn(&IcalCst<'_>) -> bool,
+) -> Result<&'a IcalCst<'a>, MsgraphEventIcalError> {
     let components = || {
         calendar.items.iter().filter_map(|item| match item {
             IcalItem::Component(component) => Some(component.as_ref()),
@@ -1321,11 +1365,11 @@ fn master_vevent<'a>(calendar: &'a IcalCst<'a>) -> Result<&'a IcalCst<'a>, Msgra
         })
     };
 
-    if let Some(master) = components()
+    if let Some(vevent) = components()
         .filter(|component| component_name(component) == "VEVENT")
-        .find(|vevent| !has_prop(vevent, "RECURRENCE-ID"))
+        .find(|vevent| pick(vevent))
     {
-        return Ok(master);
+        return Ok(vevent);
     }
 
     match components()
@@ -1997,6 +2041,14 @@ mod tests {
         );
         assert_eq!(event.reminder_minutes_before_start.as_option(), Some(&15));
         assert_eq!(event.attendees.as_option().map(Vec::len), Some(1));
+        // NOTE: minted from the cancelled occurrence, not stashed.
+        assert!(
+            !stash_lines(&event)
+                .iter()
+                .any(|line| line.starts_with("EXDATE")),
+            "{:?}",
+            stash_lines(&event)
+        );
     }
 
     #[test]
@@ -2226,6 +2278,77 @@ mod tests {
         assert!(patch.recurrence.is_unset());
         assert!(patch.attendees.is_unset());
         assert!(patch.single_value_extended_properties.is_unset());
+    }
+
+    /// One occurrence of the Monday stand-up, on its own: `hour` is when
+    /// it starts, and `extra` what else its VEVENT carries.
+    fn occurrence(hour: &str, summary: &str, extra: &str) -> String {
+        format!(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//EN\r\nBEGIN:VEVENT\r\n\
+             UID:040000008200E0\r\nRECURRENCE-ID;TZID=Europe/Paris:20260817T090000\r\n\
+             DTSTART;TZID=Europe/Paris:20260817T{hour}0000\r\n\
+             DTEND;TZID=Europe/Paris:20260817T{hour}1500\r\n\
+             SUMMARY:{summary}\r\n{extra}END:VEVENT\r\nEND:VCALENDAR\r\n"
+        )
+    }
+
+    #[test]
+    fn an_occurrence_moved_alone_sends_its_new_times() {
+        let base = occurrence("09", "Stand-up", "");
+        let moved = occurrence("10", "Stand-up", "");
+
+        let patch = MsgraphEvent::instance_update_from_ical(moved.as_bytes(), base.as_bytes())
+            .unwrap()
+            .unwrap();
+
+        let start = patch.start.as_option().unwrap();
+        assert_eq!(start.date_time, "2026-08-17T10:00:00");
+        assert_eq!(start.time_zone.as_deref(), Some("Europe/Paris"));
+        assert_eq!(
+            patch.end.as_option().unwrap().date_time,
+            "2026-08-17T10:15:00"
+        );
+        assert!(patch.subject.is_unset());
+        assert!(patch.body.is_unset());
+        assert!(patch.attendees.is_unset());
+        assert!(patch.recurrence.is_unset());
+        assert!(patch.single_value_extended_properties.is_unset());
+    }
+
+    #[test]
+    fn a_reverted_occurrence_takes_the_series_fields_back() {
+        let exception = occurrence("10", "Stand-up, moved", "");
+        let plain = occurrence("09", "Stand-up", "");
+
+        let patch = MsgraphEvent::instance_update_from_ical(plain.as_bytes(), exception.as_bytes())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            patch.subject.as_option().map(String::as_str),
+            Some("Stand-up")
+        );
+        assert_eq!(
+            patch.start.as_option().unwrap().date_time,
+            "2026-08-17T09:00:00"
+        );
+    }
+
+    /// The series' own component carried to an occurrence keeps its rule
+    /// and its remainder, which belong to the master.
+    #[test]
+    fn an_occurrence_as_graph_holds_it_sends_nothing() {
+        let held = occurrence("09", "Stand-up", "");
+        let carried = occurrence("09", "Stand-up", "RRULE:FREQ=WEEKLY\r\nX-OWN:kept\r\n");
+
+        assert_eq!(
+            MsgraphEvent::instance_update_from_ical(held.as_bytes(), held.as_bytes()).unwrap(),
+            None
+        );
+        assert_eq!(
+            MsgraphEvent::instance_update_from_ical(carried.as_bytes(), held.as_bytes()).unwrap(),
+            None
+        );
     }
 
     /// A read Graph answered in UTC, as it does unless asked for a zone.

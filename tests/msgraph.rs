@@ -29,7 +29,8 @@
 //! the mailbox itself land in its inbox and sent items, and the cleanup
 //! sweeps them by subject. With the `ical` and `vcard` features,
 //! [`ical`] and [`vcard`] round-trip an event and a contact through the
-//! projections. Every resource a run creates is named
+//! projections, and [`ical_instances`] writes single occurrences of a
+//! series through their instances. Every resource a run creates is named
 //! `io-msgraph-test-<millis>`, and nothing else is ever written.
 
 #![cfg(any(
@@ -413,6 +414,190 @@ fn ical_series() {
                 "the attendee reads back:\n{read}"
             );
             MsgraphEvent::from_ical(read.as_bytes()).expect("the series document projects back");
+        },
+        |client| {
+            if let Err(err) = client.calendar_delete(&calendar_id) {
+                report_leftover("calendar", &calendar_id, &err);
+            }
+        },
+    );
+}
+
+/// One occurrence written through its instance, as a calendar client
+/// pushes an override: moved, deleted, reverted, and edited beside its
+/// series, each read back through `to_ical_series`.
+#[cfg(feature = "ical")]
+#[test]
+#[ignore = "requires Graph credentials and --ignored"]
+fn ical_instances() {
+    use io_msgraph::v1::rest::users::events::ical::{
+        MSGRAPH_EVENT_ICAL_SELECT, MSGRAPH_EVENT_STASH_EXPAND,
+    };
+
+    let mut client = connect();
+    let name = format!("io-msgraph-test-{}", unix_millis());
+    let uid = format!("{name}@pimalaya.org");
+    let calendar_id = calendar_create(&mut client, &name);
+
+    // NOTE: the occurrence of 10:00 in Paris on `day`, alone, starting at
+    // `hour` and carrying `extra`.
+    let occurrence = |day: &str, hour: &str, extra: &[&str]| {
+        let mut timing = vec![
+            format!("RECURRENCE-ID;TZID=Europe/Paris:{day}T100000"),
+            format!("DTSTART;TZID=Europe/Paris:{day}T{hour}0000"),
+            format!("DTEND;TZID=Europe/Paris:{day}T{hour}3000"),
+        ];
+        timing.extend(extra.iter().map(|line| String::from(*line)));
+        let timing: Vec<&str> = timing.iter().map(String::as_str).collect();
+        event_document(&uid, &name, &timing)
+    };
+
+    with_cleanup(
+        &mut client,
+        |client| {
+            let document = event_document(
+                &uid,
+                &name,
+                &[
+                    "DTSTART;TZID=Europe/Paris:20300110T100000",
+                    "DTEND;TZID=Europe/Paris:20300110T103000",
+                    "RRULE:FREQ=WEEKLY;COUNT=4",
+                ],
+            );
+            let written =
+                MsgraphEvent::create_from_ical(document.as_bytes()).expect("the series projects");
+            let master_id = client
+                .event_create(Some(&calendar_id), &written)
+                .expect("series create")
+                .response
+                .id;
+
+            let params = MsgraphEventsListParams {
+                select: Some(MSGRAPH_EVENT_ICAL_SELECT),
+                ..Default::default()
+            };
+            let read = |client: &mut MsgraphClientStd| {
+                let master = client
+                    .event_get(
+                        &master_id,
+                        Some(MSGRAPH_EVENT_ICAL_SELECT),
+                        Some(MSGRAPH_EVENT_STASH_EXPAND),
+                    )
+                    .expect("series master get")
+                    .response;
+                let instances = client
+                    .event_instances(&master_id, WINDOW_START, WINDOW_END, &params)
+                    .expect("series instances")
+                    .response
+                    .value;
+                (master, instances)
+            };
+            let instance_of = |master: &MsgraphEvent, instances: &[MsgraphEvent], day: &str| {
+                instances
+                    .iter()
+                    .find(|instance| {
+                        instance
+                            .original_start
+                            .as_deref()
+                            .and_then(|start| master.recurrence_id_of(start))
+                            .as_deref()
+                            == Some(&format!("{day}T100000"))
+                    })
+                    .cloned()
+                    .unwrap_or_else(|| panic!("no instance on {day}: {instances:?}"))
+            };
+            let series = |master: &MsgraphEvent, instances: &[MsgraphEvent]| {
+                let exceptions: Vec<&MsgraphEvent> = instances
+                    .iter()
+                    .filter(|e| e.event_type == Some(MsgraphEventType::Exception))
+                    .collect();
+                master.to_ical_series(&exceptions)
+            };
+
+            // Moved: only the times reach the instance.
+            let (master, instances) = read(client);
+            let plain = occurrence("20300117", "10", &[]);
+            let moved = occurrence("20300117", "12", &[]);
+            let patch = MsgraphEvent::instance_update_from_ical(moved.as_bytes(), plain.as_bytes())
+                .expect("the occurrence projects")
+                .expect("a move is a change");
+            assert!(patch.subject.is_unset() && patch.recurrence.is_unset());
+            let target = instance_of(&master, &instances, "20300117");
+            client
+                .event_update(&target.id, &patch)
+                .expect("instance update");
+
+            // Deleted: the instance goes, the series reads an EXDATE.
+            let target = instance_of(&master, &instances, "20300124");
+            client.event_delete(&target.id).expect("instance delete");
+
+            let (master, instances) = read(client);
+            let document = series(&master, &instances);
+            for expected in [
+                "RECURRENCE-ID;TZID=Europe/Paris:20300117T100000\r\n",
+                "DTSTART;TZID=Europe/Paris:20300117T120000\r\n",
+                "EXDATE;TZID=Europe/Paris:20300124T100000\r\n",
+            ] {
+                assert!(
+                    document.contains(expected),
+                    "missing `{expected}`:\n{document}"
+                );
+            }
+
+            // Reverted: the exception as Graph holds it, patched back to
+            // the series' own times.
+            let exception = instance_of(&master, &instances, "20300117");
+            let held = exception.to_ical();
+            let patch = MsgraphEvent::instance_update_from_ical(plain.as_bytes(), held.as_bytes())
+                .expect("the occurrence projects")
+                .expect("a revert is a change");
+            client
+                .event_update(&exception.id, &patch)
+                .expect("instance revert");
+
+            // The series and one occurrence, in one push: the master's
+            // patch, then the instance's.
+            let renamed = format!("{name} renamed");
+            let edited = document.replace(
+                &format!("SUMMARY:{name}\r\n"),
+                &format!("SUMMARY:{renamed}\r\n"),
+            );
+            let patch = MsgraphEvent::update_from_ical(edited.as_bytes(), document.as_bytes())
+                .expect("the series projects");
+            assert_eq!(patch.subject.as_option(), Some(&renamed));
+            client
+                .event_update(&master_id, &patch)
+                .expect("series update");
+            let (master, instances) = read(client);
+            let plain = occurrence("20300131", "10", &[]);
+            let located = occurrence("20300131", "10", &["LOCATION:Room 3"]);
+            let patch =
+                MsgraphEvent::instance_update_from_ical(located.as_bytes(), plain.as_bytes())
+                    .expect("the occurrence projects")
+                    .expect("a location is a change");
+            let target = instance_of(&master, &instances, "20300131");
+            client
+                .event_update(&target.id, &patch)
+                .expect("instance update beside the series");
+
+            let (master, instances) = read(client);
+            let document = series(&master, &instances);
+            assert!(
+                !document.contains("DTSTART;TZID=Europe/Paris:20300117T120000\r\n"),
+                "the revert reaches Graph:\n{document}"
+            );
+            assert!(
+                document.contains(&format!("SUMMARY:{renamed}\r\n")),
+                "the series edit reaches Graph:\n{document}"
+            );
+            assert!(
+                document.contains("LOCATION:Room 3\r\n"),
+                "the occurrence edit reaches Graph:\n{document}"
+            );
+            assert!(
+                document.contains("EXDATE;TZID=Europe/Paris:20300124T100000\r\n"),
+                "the deletion stands:\n{document}"
+            );
         },
         |client| {
             if let Err(err) = client.calendar_delete(&calendar_id) {
