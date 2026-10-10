@@ -162,6 +162,7 @@ pub struct MsgraphPhysicalAddress {
 ///
 /// <https://learn.microsoft.com/en-us/graph/api/resources/singlevaluelegacyextendedproperty>
 #[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct MsgraphSingleValueExtendedProperty {
     /// The full property identifier.

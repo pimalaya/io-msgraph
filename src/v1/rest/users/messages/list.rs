@@ -46,6 +46,10 @@ pub struct MsgraphMessagesListParams<'a> {
     /// OData filter expression (`$filter`).
     #[serde(rename = "$filter")]
     pub filter: Option<&'a str>,
+    /// Navigation properties to expand (`$expand`), such as
+    /// `singleValueExtendedProperties($filter=id eq 'Integer 0x0E08')`.
+    #[serde(rename = "$expand")]
+    pub expand: Option<&'a str>,
     /// Comma-separated sort properties (`$orderby`).
     #[serde(rename = "$orderby")]
     pub orderby: Option<&'a str>,

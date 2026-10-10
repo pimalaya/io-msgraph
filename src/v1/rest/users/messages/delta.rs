@@ -77,6 +77,10 @@ pub struct MsgraphMessagesDeltaParams<'a> {
     /// `receivedDateTime ge 2026-01-01T00:00:00Z`.
     #[serde(rename = "$filter")]
     pub filter: Option<&'a str>,
+    /// Navigation properties to expand (`$expand`), such as
+    /// `singleValueExtendedProperties($filter=id eq 'Integer 0x0E08')`.
+    #[serde(rename = "$expand")]
+    pub expand: Option<&'a str>,
     /// At most this many messages per page
     /// (`Prefer: odata.maxpagesize`), a header rather than a query
     /// option.

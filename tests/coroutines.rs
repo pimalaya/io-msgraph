@@ -224,6 +224,40 @@ fn messages_list_builds_odata_query() {
     // NOTE: unset params do not appear
     assert!(!request.contains("%24skip"));
     assert!(!request.contains("%24filter"));
+    assert!(!request.contains("%24expand"));
+}
+
+#[test]
+fn messages_list_expands_an_extended_property() {
+    let body = r#"{
+        "value": [
+            {
+                "id": "MSG1",
+                "singleValueExtendedProperties": [
+                    { "id": "Integer 0xe08", "value": "48213" }
+                ]
+            },
+            { "id": "MSG2" }
+        ]
+    }"#;
+    let params = MsgraphMessagesListParams {
+        expand: Some("singleValueExtendedProperties($filter=id eq 'Integer 0x0E08')"),
+        ..Default::default()
+    };
+
+    let mut coroutine = MsgraphMessagesList::new(&auth(), "me", Some("inbox"), &params).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let value = result.unwrap().response.value;
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.contains(
+            "%24expand=singleValueExtendedProperties%28%24filter%3Did+eq+%27Integer+0x0E08%27%29"
+        ),
+        "got: {request}"
+    );
+    assert_eq!(value[0].single_value_extended_properties[0].value, "48213");
+    assert!(value[1].single_value_extended_properties.is_empty());
 }
 
 #[test]
@@ -353,6 +387,7 @@ fn messages_delta_prefers_page_size_on_first_and_next_requests() {
     let params = MsgraphMessagesDeltaParams {
         select: Some("id,subject,receivedDateTime"),
         filter: Some("receivedDateTime ge 2026-01-01T00:00:00Z"),
+        expand: Some("singleValueExtendedProperties($filter=id eq 'Integer 0x0E08')"),
         max_page_size: Some(1000),
     };
     let mut coroutine =
@@ -374,6 +409,10 @@ fn messages_delta_prefers_page_size_on_first_and_next_requests() {
     );
     assert!(
         request.contains("%24filter=receivedDateTime+ge+2026-01-01T00%3A00%3A00Z"),
+        "got: {request}"
+    );
+    assert!(
+        request.contains("%24expand=singleValueExtendedProperties"),
         "got: {request}"
     );
     // NOTE: the page size is a header, never a query option

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added `expand` (`$expand`) to `MsgraphMessagesListParams` and `MsgraphMessagesDeltaParams`, and `MsgraphMessage::single_value_extended_properties`, filled when the request expands them (such as `Integer 0x0E08`, the MAPI message size).
+
 ## [0.5.0] - 2026-10-09
 
 ### Added

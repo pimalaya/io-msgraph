@@ -8,6 +8,8 @@ use alloc::{string::String, vec::Vec};
 
 use serde::{Deserialize, Serialize};
 
+use crate::v1::rest::users::contacts::MsgraphSingleValueExtendedProperty;
+
 pub mod attachments;
 pub mod copy;
 pub mod create;
@@ -93,6 +95,11 @@ pub struct MsgraphMessage {
     /// The identifier of the conversation the message belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_id: Option<String>,
+    /// Single-value extended MAPI properties, returned only when the
+    /// request `$expand`ed them by id (such as `Integer 0x0E08`, the
+    /// message size).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub single_value_extended_properties: Vec<MsgraphSingleValueExtendedProperty>,
 }
 
 /// A message recipient, wrapping an email address.
