@@ -5,9 +5,13 @@
 
 use alloc::{collections::BTreeMap, format, string::String, vec::Vec};
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{
+    Deserialize, Serialize,
+    de::{DeserializeOwned, Error as _},
+};
 use serde_json::Value;
 use url::Url;
 
@@ -77,6 +81,35 @@ impl MsgraphBatchResponse {
             code,
             message,
         })
+    }
+
+    /// Decodes the body of a 2xx response answered as a JSON string
+    /// holding base64, or turns any other status into
+    /// [`MsgraphSendError::Api`]. A missing body reads as empty.
+    ///
+    /// Graph encodes that way an inner body that is not JSON, such as
+    /// the MIME message of a `$value` request. The documentation only
+    /// shows JSON bodies, the encoding is community-observed:
+    /// <https://learn.microsoft.com/en-us/graph/json-batching>.
+    pub fn bytes(self) -> Result<Vec<u8>, MsgraphSendError> {
+        let Some(encoded) = self.parse::<Option<String>>()? else {
+            return Ok(Vec::new());
+        };
+
+        STANDARD
+            .decode(encoded)
+            .map_err(|err| MsgraphSendError::ParseResponse(serde_json::Error::custom(err)))
+    }
+
+    /// Returns the delay of the `Retry-After` header in seconds, `None`
+    /// when absent or given as an HTTP date (RFC 9110 §10.2.3).
+    ///
+    /// Graph sends it on a throttled (429) inner response.
+    pub fn retry_after(&self) -> Option<u64> {
+        self.headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("retry-after"))
+            .and_then(|(_, value)| value.trim().parse().ok())
     }
 }
 

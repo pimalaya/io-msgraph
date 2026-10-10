@@ -9,7 +9,7 @@ use io_http::rfc6750::bearer::HttpAuthBearer;
 use io_msgraph::v1::{
     field::MsgraphField,
     query::to_query_pairs,
-    rest::batch::{MsgraphBatch, MsgraphBatchRequest},
+    rest::batch::{MsgraphBatch, MsgraphBatchRequest, MsgraphBatchResponses},
     rest::users::{
         contact_folders::{
             MsgraphContactFolder, create::MsgraphContactFolderCreate,
@@ -127,6 +127,44 @@ fn batch_posts_requests_and_parses_responses() {
     assert!(
         matches!(err, Err(MsgraphSendError::Api { status: 404, ref code, .. }) if code == "ErrorFolderNotFound")
     );
+}
+
+#[test]
+fn batch_response_decodes_base64_bodies_and_retry_after() {
+    let body = r#"{
+        "responses": [
+            { "id": "1", "status": 200, "headers": { "Content-Type": "message/rfc822" }, "body": "U3ViamVjdDogSGkNCg0KSGVsbG8=" },
+            { "id": "2", "status": 204, "body": null },
+            { "id": "3", "status": 200, "body": "not base64!" },
+            { "id": "4", "status": 200, "body": { "id": "AAA" } },
+            { "id": "5", "status": 429, "headers": { "Retry-After": "7" }, "body": { "error": { "code": "TooManyRequests", "message": "Throttled" } } },
+            { "id": "6", "status": 503, "headers": { "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT" } }
+        ]
+    }"#;
+
+    let responses: MsgraphBatchResponses = serde_json::from_str(body).unwrap();
+    let mut responses = responses.responses.into_iter();
+    let mut next = || responses.next().unwrap();
+
+    assert_eq!(next().bytes().unwrap(), b"Subject: Hi\r\n\r\nHello");
+    assert!(next().bytes().unwrap().is_empty());
+    assert!(matches!(
+        next().bytes(),
+        Err(MsgraphSendError::ParseResponse(_))
+    ));
+    assert!(matches!(
+        next().bytes(),
+        Err(MsgraphSendError::ParseResponse(_))
+    ));
+
+    let throttled = next();
+    assert_eq!(throttled.retry_after(), Some(7));
+    assert!(matches!(
+        throttled.bytes(),
+        Err(MsgraphSendError::Api { status: 429, .. })
+    ));
+
+    assert_eq!(next().retry_after(), None);
 }
 
 #[test]
