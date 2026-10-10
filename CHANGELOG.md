@@ -6,9 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-10
+
 ### Added
 
-- Added `expand` (`$expand`) to `MsgraphMessagesListParams` and `MsgraphMessagesDeltaParams`, and `MsgraphMessage::single_value_extended_properties`, filled when the request expands them (such as `Integer 0x0E08`, the MAPI message size).
+- Added `expand` (`$expand`) to `MsgraphMessagesListParams` and `MsgraphMessagesDeltaParams`, and `MsgraphMessage::single_value_extended_properties`, filled when the request expands them (such as `Integer 0x0E08`, the MAPI message size). **Breaking** for a struct literal without `..Default::default()`.
 
 ## [0.5.0] - 2026-10-09
 
@@ -158,7 +160,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added the contacts surface: contact folders and contacts, with delta.
 - Added `MsgraphClientStd` (`client` feature), a std blocking client with a `connect` constructor behind the TLS features.
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.5.0..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.6.0..HEAD
+[0.6.0]: https://github.com/pimalaya/io-msgraph/compare/v0.5.0..v0.6.0
 [0.5.0]: https://github.com/pimalaya/io-msgraph/compare/v0.4.7..v0.5.0
 [0.4.7]: https://github.com/pimalaya/io-msgraph/compare/v0.4.6..v0.4.7
 [0.4.6]: https://github.com/pimalaya/io-msgraph/compare/v0.4.5..v0.4.6
