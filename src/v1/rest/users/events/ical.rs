@@ -822,16 +822,13 @@ fn vevent(
         });
     }
 
-    for line in stash_lines(event) {
-        // NOTE: a minted property stashed by an older version would
-        // come out twice.
-        if is_uid_line(&line) || is_minted_line(&line) {
-            continue;
-        }
-        // NOTE: a line that no longer tokenises restores nothing rather
-        // than corrupting the event.
-        let _ = vevent.push_raw(&line);
-    }
+    // NOTE: a minted property stashed by an older version would come out
+    // twice.
+    let stash: Vec<String> = stash_lines(event)
+        .into_iter()
+        .filter(|line| !is_uid_line(line) && !is_minted_line(line))
+        .collect();
+    push_stash(&mut vevent, &stash);
 
     if event.is_reminder_on.as_option() == Some(&true)
         && let Some(minutes) = event.reminder_minutes_before_start.as_option()
@@ -1597,6 +1594,36 @@ fn stash_lines(event: &MsgraphEvent) -> Vec<String> {
         .collect()
 }
 
+/// Restores stashed lines into `component`: each property alone, so one
+/// that no longer tokenises restores nothing rather than corrupting the
+/// item, and each stashed subcomponent in one go, so its lines stay
+/// together.
+fn push_stash(component: &mut IcalCst<'_>, lines: &[String]) {
+    let mut block: Vec<&str> = Vec::new();
+    let mut depth = 0_usize;
+
+    for line in lines {
+        let name = line.split([';', ':']).next().unwrap_or_default();
+        if name.eq_ignore_ascii_case("BEGIN") {
+            depth += 1;
+        }
+
+        if depth == 0 {
+            let _ = component.push_raw(line);
+            continue;
+        }
+
+        block.push(line);
+        if name.eq_ignore_ascii_case("END") {
+            depth -= 1;
+            if depth == 0 {
+                let _ = component.push_raw(&block.join("\r\n"));
+                block.clear();
+            }
+        }
+    }
+}
+
 /// Whether a stashed line is the UID, written by [`vevent`] itself.
 fn is_uid_line(line: &str) -> bool {
     let name = line.split([';', ':']).next().unwrap_or_default();
@@ -1839,6 +1866,22 @@ mod tests {
             cancelled_occurrences: vec!["OID.SM1.2026-08-21".into()],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_stashed_alarm_reads_back_whole() {
+        let doc = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:a\r\n\
+            DTSTART:20261120T090000Z\r\nDTEND:20261120T100000Z\r\nSUMMARY:Review\r\n\
+            BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\n\
+            BEGIN:VALARM\r\nACTION:EMAIL\r\nTRIGGER:-PT1H\r\nSUMMARY:Soon\r\nEND:VALARM\r\n\
+            END:VEVENT\r\nEND:VCALENDAR\r\n";
+
+        let ical = MsgraphEvent::from_ical(doc.as_bytes()).unwrap().to_ical();
+
+        assert!(ical.contains(
+            "SUMMARY:Review\r\nBEGIN:VALARM\r\nACTION:EMAIL\r\nTRIGGER:-PT1H\r\nSUMMARY:Soon\r\n\
+             END:VALARM\r\n"
+        ));
     }
 
     #[test]
