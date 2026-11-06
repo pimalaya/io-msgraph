@@ -22,18 +22,12 @@ This library is composed of 3 feature-gated layers:
 
 ## Features
 
-- **I/O-free coroutines**: state machines with no socket, no async runtime and no forced I/O model; run them from any blocking, async or test harness.
-- **Mail surface**: manage mail folders, messages and attachments, download raw MIME content, create drafts from JSON or MIME and send them, with incremental change tracking through delta queries (see [API coverage](#api-coverage)).
-- **Contacts surface**: manage contact folders and contacts, with three-state update fields distinguishing a cleared field from a preserved one, and incremental change tracking through delta queries.
-- **Calendar surface**: manage calendars and events, read a series' instances and a calendar view, with incremental change tracking through delta queries.
-- **To Do surface**: manage task lists and their tasks, read checklist items, with incremental change tracking through delta queries.
-- **iCalendar and vCard projections**: read events and To Do tasks as iCalendar, contacts as vCard, and write them back, every line without a Graph field kept verbatim (requires `ical` and `vcard` features).
-- **Bearer-token authentication**: requests carry the OAuth 2.0 access token you provide; minting and refreshing it stays under your control.
-- **Light client**: a standard, blocking client exposing one method per operation over a stream you opened yourself (requires `client` feature).
-- **Full client** with **TLS** support:
-  - [Rustls](https://crates.io/crates/rustls) with ring crypto (requires `rustls-ring` feature, enabled by default)
-  - [Rustls](https://crates.io/crates/rustls) with aws crypto (requires `rustls-aws` feature)
-  - [Native TLS](https://crates.io/crates/native-tls) (requires `native-tls` feature)
+- **Mail**: folders, messages and attachments, raw MIME downloads, drafts and sending.
+- **Contacts, calendars and To Do**: contact folders, calendars and events, task lists and their tasks.
+- **Incremental sync**: delta queries return only what changed since the last round.
+- **Batching**: up to 20 requests in one HTTP call.
+- **iCalendar and vCard** (`ical`, `vcard` features): events and tasks as iCalendar, contacts as vCard, and back.
+- **Full client**: TLS via Rustls (`rustls-ring` default, `rustls-aws`) or Native TLS (`native-tls`).
 
 > [!TIP]
 > I/O Microsoft Graph is written in [Rust](https://www.rust-lang.org/) and uses [cargo features](https://doc.rust-lang.org/cargo/reference/features.html) to gate the client layers. The default feature set is declared in [Cargo.toml](./Cargo.toml) or on [docs.rs](https://docs.rs/crate/io-msgraph/latest/features).
