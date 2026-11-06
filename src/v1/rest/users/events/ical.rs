@@ -120,11 +120,11 @@ pub const MSGRAPH_EVENT_ICAL_SELECT: &str = "id,iCalUId,changeKey,createdDateTim
      reminderMinutesBeforeStart,isCancelled,webLink,onlineMeeting,cancelledOccurrences";
 
 /// Product identifier the synthesized document carries.
-const PRODID: &str = "-//Pimalaya//io-msgraph//EN";
+pub(crate) const PRODID: &str = "-//Pimalaya//io-msgraph//EN";
 
 /// Longest raw property line stashed server-side; a longer one, an inline
 /// attachment essentially, stays in the local document.
-const MAX_STASH_LINE: usize = 8 * 1024;
+pub(crate) const MAX_STASH_LINE: usize = 8 * 1024;
 
 /// Properties minted read-only from Graph-scoped fields, dropped on read.
 const MINTED_PROPS: &[&str] = &["X-MSGRAPH-WEB-LINK", "CONFERENCE", TEAMS_MEETING_URL];
@@ -210,7 +210,7 @@ impl MsgraphEvent {
     pub fn create_from_ical(contents: &[u8]) -> Result<Self, MsgraphEventIcalError> {
         let mut event = Self::from_ical(contents)?;
 
-        if stash_lines(&event).is_empty() {
+        if stash_lines(&event.single_value_extended_properties).is_empty() {
             event.single_value_extended_properties = MsgraphField::Unset;
         }
 
@@ -316,16 +316,18 @@ impl MsgraphEvent {
     /// stash would hand the event back under Graph's UID rather than the one
     /// it was written with.
     pub fn stashed_uid(&self) -> Option<String> {
-        stash_lines(self).iter().find_map(|line| {
-            let mut bytes = line.clone();
-            bytes.push_str("\r\n");
-            let (line, _) = IcalLine::take(bytes.as_bytes()).ok()?;
-            line.name
-                .get()
-                .eq_ignore_ascii_case("UID")
-                .then(|| line.raw_value_str().trim().to_string())
-                .filter(|uid| !uid.is_empty())
-        })
+        stash_lines(&self.single_value_extended_properties)
+            .iter()
+            .find_map(|line| {
+                let mut bytes = line.clone();
+                bytes.push_str("\r\n");
+                let (line, _) = IcalLine::take(bytes.as_bytes()).ok()?;
+                line.name
+                    .get()
+                    .eq_ignore_ascii_case("UID")
+                    .then(|| line.raw_value_str().trim().to_string())
+                    .filter(|uid| !uid.is_empty())
+            })
     }
 }
 
@@ -824,7 +826,7 @@ fn vevent(
 
     // NOTE: a minted property stashed by an older version would come out
     // twice.
-    let stash: Vec<String> = stash_lines(event)
+    let stash: Vec<String> = stash_lines(&event.single_value_extended_properties)
         .into_iter()
         .filter(|line| !is_uid_line(line) && !is_minted_line(line))
         .collect();
@@ -921,7 +923,7 @@ fn local_boundary(
 }
 
 /// How Graph names a zone, resolved for iCalendar.
-enum Zone {
+pub(crate) enum Zone {
     /// UTC: a `Z`-suffixed time.
     Utc,
     /// An IANA zone, given a VTIMEZONE.
@@ -931,7 +933,7 @@ enum Zone {
 }
 
 /// Resolves a Graph zone name, Windows or IANA.
-fn zone(name: Option<&str>) -> Zone {
+pub(crate) fn zone(name: Option<&str>) -> Zone {
     let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) else {
         return Zone::Utc;
     };
@@ -1026,7 +1028,7 @@ fn recurrence_id(
 
 /// The RRULE of a Graph recurrence, `None` for a pattern missing what its
 /// kind needs.
-fn rrule(
+pub(crate) fn rrule(
     recurrence: &MsgraphPatternedRecurrence,
     start: Option<&MsgraphDateTimeTimeZone>,
     all_day: bool,
@@ -1167,13 +1169,13 @@ fn exdates(
 }
 
 /// A parsed DTSTART or DTEND, ready for Graph.
-struct Boundary {
+pub(crate) struct Boundary {
     /// The wall time or the midnight of the date.
-    local: DateTime,
+    pub(crate) local: DateTime,
     /// Whether the boundary is a date.
-    all_day: bool,
+    pub(crate) all_day: bool,
     /// The zone, `UTC` for a `Z` time and for a date.
-    zone: String,
+    pub(crate) zone: String,
 }
 
 impl Boundary {
@@ -1197,7 +1199,7 @@ impl Boundary {
 
 /// Reads a DTSTART or DTEND, `None` for a floating time, which has no
 /// instant Graph could store.
-fn boundary(line: &IcalLine<'_>) -> Option<Boundary> {
+pub(crate) fn boundary(line: &IcalLine<'_>) -> Option<Boundary> {
     let value = line.raw_value_str();
     let value = value.trim();
 
@@ -1229,7 +1231,7 @@ fn boundary(line: &IcalLine<'_>) -> Option<Boundary> {
 
 /// The Graph recurrence of an RRULE, refused when Graph has no pattern for
 /// it rather than approximated.
-fn recurrence(
+pub(crate) fn recurrence(
     rule: &str,
     start: &Boundary,
 ) -> Result<MsgraphPatternedRecurrence, MsgraphEventIcalError> {
@@ -1379,7 +1381,7 @@ fn find_vevent<'a>(
 }
 
 /// The upper-cased name a component's BEGIN line gives it.
-fn component_name(component: &IcalCst<'_>) -> String {
+pub(crate) fn component_name(component: &IcalCst<'_>) -> String {
     component
         .begin
         .as_ref()
@@ -1526,13 +1528,13 @@ fn ical_digits(date_time: &str) -> String {
 }
 
 /// An RFC 3339 instant as an iCalendar UTC stamp.
-fn utc_stamp(instant: &str) -> Option<String> {
+pub(crate) fn utc_stamp(instant: &str) -> Option<String> {
     let instant = instant.parse::<Timestamp>().ok()?;
     Some(instant.strftime("%Y%m%dT%H%M%SZ").to_string())
 }
 
 /// A UTC date-time property.
-fn stamp_prop(kind: IcalPropKind, stamp: String) -> IcalProp<'static> {
+pub(crate) fn stamp_prop(kind: IcalPropKind, stamp: String) -> IcalProp<'static> {
     IcalProp {
         name: IcalPropName::Kind(kind),
         params: Vec::new(),
@@ -1542,7 +1544,7 @@ fn stamp_prop(kind: IcalPropKind, stamp: String) -> IcalProp<'static> {
 
 /// The text a body says, whatever its content type: Exchange turns every
 /// body into HTML, so the type alone never tells an edit.
-fn body_text(body: &MsgraphField<MsgraphItemBody>) -> String {
+pub(crate) fn body_text(body: &MsgraphField<MsgraphItemBody>) -> String {
     let Some(body) = body.as_option() else {
         return String::new();
     };
@@ -1554,7 +1556,7 @@ fn body_text(body: &MsgraphField<MsgraphItemBody>) -> String {
 }
 
 /// The text of an HTML body without its markup, for DESCRIPTION.
-fn strip_html(html: &str) -> String {
+pub(crate) fn strip_html(html: &str) -> String {
     let mut text = String::with_capacity(html.len());
     let mut in_tag = false;
     for character in html.chars() {
@@ -1575,14 +1577,15 @@ fn strip_html(html: &str) -> String {
 
 /// Whether two texts say the same once their whitespace is collapsed, so
 /// line endings and indentation the HTML source carried do not count.
-fn same_text(left: &str, right: &str) -> bool {
+pub(crate) fn same_text(left: &str, right: &str) -> bool {
     left.split_whitespace().eq(right.split_whitespace())
 }
 
-/// The stashed lines behind the event's extended property, matched by name.
-fn stash_lines(event: &MsgraphEvent) -> Vec<String> {
-    event
-        .single_value_extended_properties
+/// The stashed lines behind an item's extended properties, matched by name.
+pub(crate) fn stash_lines(
+    props: &MsgraphField<Vec<MsgraphSingleValueExtendedProperty>>,
+) -> Vec<String> {
+    props
         .as_option()
         .map(Vec::as_slice)
         .unwrap_or(&[])
@@ -1598,7 +1601,7 @@ fn stash_lines(event: &MsgraphEvent) -> Vec<String> {
 /// that no longer tokenises restores nothing rather than corrupting the
 /// item, and each stashed subcomponent in one go, so its lines stay
 /// together.
-fn push_stash(component: &mut IcalCst<'_>, lines: &[String]) {
+pub(crate) fn push_stash(component: &mut IcalCst<'_>, lines: &[String]) {
     let mut block: Vec<&str> = Vec::new();
     let mut depth = 0_usize;
 
@@ -1639,17 +1642,17 @@ fn is_minted_line(line: &str) -> bool {
 }
 
 /// The decoded text of a property line.
-fn text(line: &IcalLine<'_>) -> String {
+pub(crate) fn text(line: &IcalLine<'_>) -> String {
     IcalText::decode(&line.value).0.into_owned()
 }
 
 /// One logical line, its ending stripped, for the stash.
-fn raw_line(line: &IcalLine<'_>) -> String {
+pub(crate) fn raw_line(line: &IcalLine<'_>) -> String {
     line.to_string().trim_end_matches(['\r', '\n']).to_owned()
 }
 
 /// A whole component as its raw lines, endings stripped.
-fn raw_component(component: &IcalCst<'_>) -> Vec<String> {
+pub(crate) fn raw_component(component: &IcalCst<'_>) -> Vec<String> {
     component
         .to_string()
         .lines()
@@ -1754,7 +1757,7 @@ fn sensitivity_from_ical(value: &str) -> Option<MsgraphSensitivity> {
 }
 
 /// The importance of a PRIORITY: 1 to 4 high, 5 normal, 6 to 9 low, 0 none.
-fn importance_from_ical(value: &str) -> Option<MsgraphImportance> {
+pub(crate) fn importance_from_ical(value: &str) -> Option<MsgraphImportance> {
     match value.trim().parse::<u8>().ok()? {
         1..=4 => Some(MsgraphImportance::High),
         5 => Some(MsgraphImportance::Normal),
@@ -2086,11 +2089,11 @@ mod tests {
         assert_eq!(event.attendees.as_option().map(Vec::len), Some(1));
         // NOTE: minted from the cancelled occurrence, not stashed.
         assert!(
-            !stash_lines(&event)
+            !stash_lines(&event.single_value_extended_properties)
                 .iter()
                 .any(|line| line.starts_with("EXDATE")),
             "{:?}",
-            stash_lines(&event)
+            stash_lines(&event.single_value_extended_properties)
         );
     }
 
@@ -2264,7 +2267,7 @@ mod tests {
         assert!(back.online_meeting.is_none());
         assert!(back.is_online_meeting.is_unset());
         assert!(
-            !stash_lines(&back)
+            !stash_lines(&back.single_value_extended_properties)
                 .iter()
                 .any(|line| line.contains("CONFERENCE") || line.contains("SKYPETEAMS")),
             "{back:?}"
@@ -2283,7 +2286,7 @@ mod tests {
         let created = MsgraphEvent::from_ical(asked.as_bytes()).unwrap();
         assert_eq!(created.is_online_meeting, MsgraphField::Set(true));
         assert!(
-            !stash_lines(&created)
+            !stash_lines(&created.single_value_extended_properties)
                 .iter()
                 .any(|line| line.contains("ONLINE-MEETING")),
             "{created:?}"

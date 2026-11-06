@@ -1201,3 +1201,161 @@ fn events_delta_parses_changes_and_removals() {
     assert_eq!(out.value[1].removed.as_ref().unwrap().reason, "deleted");
     assert!(out.delta_link.unwrap().contains("deltatoken=abc"));
 }
+
+#[test]
+fn todo_lists_list_reads_the_built_in_lists() {
+    use io_msgraph::v1::rest::users::todo::lists::{
+        MsgraphTodoWellknownListName,
+        list::{MsgraphTodoListsList, MsgraphTodoListsListParams},
+    };
+
+    let body = r#"{
+        "value": [
+            { "@odata.etag": "W/\"vpgg2g==\"", "displayName": "Tasks", "isOwner": true,
+              "isShared": false, "wellknownListName": "defaultList", "id": "TL1" },
+            { "displayName": "Later", "wellknownListName": "somethingNew", "id": "TL2" }
+        ]
+    }"#;
+    let params = MsgraphTodoListsListParams::default();
+    let mut coroutine = MsgraphTodoListsList::new(&auth(), "alice@example.com", &params).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let out = result.unwrap().response;
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/users/alice@example.com/todo/lists?"),
+        "got: {request}"
+    );
+    assert_eq!(out.value[0].etag.as_deref(), Some("W/\"vpgg2g==\""));
+    assert_eq!(
+        out.value[0].wellknown_list_name,
+        Some(MsgraphTodoWellknownListName::DefaultList)
+    );
+    assert_eq!(
+        out.value[1].wellknown_list_name,
+        Some(MsgraphTodoWellknownListName::UnknownFutureValue)
+    );
+}
+
+#[test]
+fn todo_task_get_expands_into_its_list() {
+    use io_msgraph::v1::rest::users::todo::tasks::get::MsgraphTodoTaskGet;
+
+    let body = r#"{
+        "id": "TK1",
+        "title": "Call",
+        "checklistItems": [{ "displayName": "Dial", "isChecked": false, "id": "CI1" }],
+        "linkedResources": [{ "webUrl": "mid:abc@example.com", "id": "LR1" }]
+    }"#;
+    let mut coroutine =
+        MsgraphTodoTaskGet::new(&auth(), "me", "TL1", "TK1", None, Some("checklistItems")).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let out = result.unwrap().response;
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/todo/lists/TL1/tasks/TK1?%24expand=checklistItems "),
+        "got: {request}"
+    );
+    assert_eq!(out.checklist_items[0].display_name.as_deref(), Some("Dial"));
+    assert_eq!(
+        out.linked_resources[0].web_url.as_deref(),
+        Some("mid:abc@example.com")
+    );
+}
+
+#[test]
+fn todo_task_writes_post_and_patch_into_the_list() {
+    use io_msgraph::v1::rest::users::todo::tasks::{
+        MsgraphTodoTask, create::MsgraphTodoTaskCreate, update::MsgraphTodoTaskUpdate,
+    };
+
+    let read: MsgraphTodoTask = serde_json::from_str(
+        r#"{ "@odata.etag": "W/\"e1\"", "id": "TK1", "title": "Call", "hasAttachments": false }"#,
+    )
+    .unwrap();
+    let task = MsgraphTodoTask {
+        title: MsgraphField::Set("Call".into()),
+        ..Default::default()
+    };
+
+    let mut coroutine = MsgraphTodoTaskCreate::new(&auth(), "me", "TL1", &task).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 201 Created", r#"{ "id": "TK1" }"#),
+    );
+    assert!(result.is_ok());
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("POST /v1.0/me/todo/lists/TL1/tasks "),
+        "got: {request}"
+    );
+    assert!(request.ends_with(r#"{"title":"Call"}"#), "got: {request}");
+
+    // NOTE: a read task written back carries its etag; the edit clears the
+    // due date.
+    let task = MsgraphTodoTask {
+        etag: None,
+        due_date_time: MsgraphField::Null,
+        ..read
+    };
+    let mut coroutine = MsgraphTodoTaskUpdate::new(&auth(), "me", "TL1", "TK1", &task).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 200 OK", r#"{ "id": "TK1" }"#),
+    );
+    assert!(result.is_ok());
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("PATCH /v1.0/me/todo/lists/TL1/tasks/TK1 "),
+        "got: {request}"
+    );
+    assert!(
+        request
+            .ends_with(r#"{"id":"TK1","title":"Call","dueDateTime":null,"hasAttachments":false}"#),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn todo_tasks_delta_parses_changes_and_removals() {
+    use io_msgraph::v1::rest::users::todo::tasks::{
+        MsgraphTodoTaskStatus, delta::MsgraphTodoTasksDelta,
+    };
+
+    // NOTE: a removal row as Graph sends it, with two defaulted fields.
+    let body = r#"{
+        "value": [
+            { "isReminderOn": false, "hasAttachments": false, "id": "TK2",
+              "@removed": { "reason": "deleted" } },
+            { "@odata.etag": "W/\"e2\"", "status": "waitingOnOthers", "title": "Call",
+              "id": "TK1", "categories": ["inbox"],
+              "linkedResources": [{ "webUrl": "mid:abc@example.com", "id": "LR1" }] }
+        ],
+        "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/todo/lists/TL1/tasks/delta?$deltatoken=abc"
+    }"#;
+    let mut coroutine = MsgraphTodoTasksDelta::new(&auth(), "me", "TL1", None)
+        .unwrap()
+        .max_page_size(50);
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let out = result.unwrap().response;
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/todo/lists/TL1/tasks/delta "),
+        "got: {request}"
+    );
+    assert!(
+        request.contains("Prefer: odata.maxpagesize=50"),
+        "got: {request}"
+    );
+    assert_eq!(out.value[0].task.id, "TK2");
+    assert_eq!(out.value[0].removed.as_ref().unwrap().reason, "deleted");
+    assert!(out.value[1].removed.is_none());
+    assert_eq!(out.value[1].task.etag.as_deref(), Some("W/\"e2\""));
+    assert_eq!(
+        out.value[1].task.status,
+        MsgraphField::Set(MsgraphTodoTaskStatus::WaitingOnOthers)
+    );
+    assert!(out.delta_link.unwrap().contains("deltatoken=abc"));
+}

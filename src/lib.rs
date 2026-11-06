@@ -13,9 +13,9 @@
 //! io-msgraph is the Microsoft Graph sibling of [io-gmail]: same shape
 //! (JSON over HTTP), different vendor. Unlike io-gmail, which is scoped
 //! to Gmail's mail API, io-msgraph represents the whole Microsoft Graph
-//! API: the mail and contacts surfaces are covered today, and sibling
-//! resources (calendars among others) will be added under the same tree
-//! over time.
+//! API: the mail, contacts, calendar and To Do surfaces are covered
+//! today, and sibling resources will be added under the same tree over
+//! time.
 //!
 //! [io-gmail]: https://docs.rs/io-gmail
 //!
@@ -72,16 +72,19 @@
 //!
 //! ## Module layout
 //!
-//! [`v1::rest`] mirrors the Graph reference. The mail and contacts
-//! surfaces hang off the users resource, so they live under
-//! [`v1::rest::users`], with each sub-resource a directory and each
+//! [`v1::rest`] mirrors the Graph reference. The mail, contacts,
+//! calendar and To Do surfaces hang off the users resource, so they live
+//! under [`v1::rest::users`], with each sub-resource a directory and each
 //! operation a file named after it: mail_folders (list, get, create,
 //! update, delete, move, copy, child_folders), messages (list, get,
 //! get_raw, create, create_mime, update, delete, move, copy, send,
 //! delta, attachments), contact_folders (list, get, create, update,
 //! delete, child_folders), contacts (list, get, create, update,
-//! delete, delta)
-//! and the sendMail action (JSON and MIME form). JSON batching lives at
+//! delete, delta), calendars (list, get, create, update, delete), events
+//! (list, get, create, update, delete, instances, calendar_view, delta),
+//! todo lists (list, get, create, update, delete, delta) and their tasks
+//! (list, get, create, update, delete, delta, checklist_items), and the
+//! sendMail action (JSON and MIME form). JSON batching lives at
 //! the API root, under [`v1::rest::batch`]. A reader who knows the
 //! reference knows where to look.
 //!

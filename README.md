@@ -25,6 +25,9 @@ This library is composed of 3 feature-gated layers:
 - **I/O-free coroutines**: state machines with no socket, no async runtime and no forced I/O model; run them from any blocking, async or test harness.
 - **Mail surface**: manage mail folders, messages and attachments, download raw MIME content, create drafts from JSON or MIME and send them, with incremental change tracking through delta queries (see [API coverage](#api-coverage)).
 - **Contacts surface**: manage contact folders and contacts, with three-state update fields distinguishing a cleared field from a preserved one, and incremental change tracking through delta queries.
+- **Calendar surface**: manage calendars and events, read a series' instances and a calendar view, with incremental change tracking through delta queries.
+- **To Do surface**: manage task lists and their tasks, read checklist items, with incremental change tracking through delta queries.
+- **iCalendar and vCard projections**: read events and To Do tasks as iCalendar, contacts as vCard, and write them back, every line without a Graph field kept verbatim (requires `ical` and `vcard` features).
 - **Bearer-token authentication**: requests carry the OAuth 2.0 access token you provide; minting and refreshing it stays under your control.
 - **Light client**: a standard, blocking client exposing one method per operation over a stream you opened yourself (requires `client` feature).
 - **Full client** with **TLS** support:
@@ -37,7 +40,7 @@ This library is composed of 3 feature-gated layers:
 
 ## API coverage
 
-Microsoft Graph is a single API spanning many domains; io-msgraph covers it incrementally, mirroring the [Microsoft Graph v1.0 reference](https://learn.microsoft.com/en-us/graph/api/overview). Every operation below is an I/O-free coroutine; the calendar domain is planned next.
+Microsoft Graph is a single API spanning many domains; io-msgraph covers it incrementally, mirroring the [Microsoft Graph v1.0 reference](https://learn.microsoft.com/en-us/graph/api/overview). Every operation below is an I/O-free coroutine.
 
 | Resource                   | Operations                                                                             |
 |----------------------------|----------------------------------------------------------------------------------------|
@@ -48,6 +51,10 @@ Microsoft Graph is a single API spanning many domains; io-msgraph covers it incr
 | users.messages.attachments | list, create, get raw content, delete                                                  |
 | users.contactFolders       | list, get, create, update, delete, list child folders                                  |
 | users.contacts             | list, get, create, update, delete, track changes with delta                            |
+| users.calendars            | list, get, create, update, delete                                                      |
+| users.events               | list, get, create, update, delete, list instances, calendar view, track changes with delta |
+| users.todo.lists           | list, get, create, update, delete, track changes with delta                            |
+| users.todo.lists.tasks     | list, get, create, update, delete, track changes with delta, list checklist items      |
 
 ## Usage
 

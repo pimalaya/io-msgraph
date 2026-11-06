@@ -1,4 +1,4 @@
-//! Live tests against Microsoft Graph: mail, contacts and calendars.
+//! Live tests against Microsoft Graph: mail, contacts, calendars and To Do.
 //!
 //! Graph only accepts an OAuth 2.0 Bearer token. A token minted by hand
 //! (delegated, `me` by default) dies within the hour:
@@ -20,18 +20,19 @@
 //! ```
 //!
 //! The app needs the Graph application permissions `Mail.ReadWrite`,
-//! `Mail.Send`, `Contacts.ReadWrite`, `Calendars.ReadWrite` and
-//! `User.Read.All`, admin consent granted.
+//! `Mail.Send`, `Contacts.ReadWrite`, `Calendars.ReadWrite`,
+//! `Tasks.ReadWrite.All` and `User.Read.All`, admin consent granted.
 //!
-//! [`account`] only reads. [`mail`], [`contacts`] and [`calendars`]
-//! walk the CRUD surface inside a throwaway folder or calendar that
-//! [`with_cleanup`] deletes however the run ends; the messages sent to
-//! the mailbox itself land in its inbox and sent items, and the cleanup
-//! sweeps them by subject. With the `ical` and `vcard` features,
-//! [`ical`] and [`vcard`] round-trip an event and a contact through the
-//! projections, and [`ical_instances`] writes single occurrences of a
-//! series through their instances. Every resource a run creates is named
-//! `io-msgraph-test-<millis>`, and nothing else is ever written.
+//! [`account`] only reads. [`mail`], [`contacts`], [`calendars`] and
+//! [`todo`] walk the CRUD surface inside a throwaway folder, calendar or
+//! task list that [`with_cleanup`] deletes however the run ends; the
+//! messages sent to the mailbox itself land in its inbox and sent items,
+//! and the cleanup sweeps them by subject. With the `ical` and `vcard`
+//! features, [`ical`], [`ical_todo`] and [`vcard`] round-trip an event, a
+//! task and a contact through the projections, and [`ical_instances`]
+//! writes single occurrences of a series through their instances. Every
+//! resource a run creates is named `io-msgraph-test-<millis>`, and nothing
+//! else is ever written.
 
 #![cfg(any(
     feature = "rustls-ring",
@@ -64,8 +65,12 @@ use io_msgraph::v1::{
             },
             mail_folders::MsgraphMailFolder,
             messages::{
-                MsgraphBodyType, MsgraphEmailAddress, MsgraphItemBody, MsgraphMessage,
-                MsgraphRecipient, list::MsgraphMessagesListParams,
+                MsgraphBodyType, MsgraphEmailAddress, MsgraphImportance, MsgraphItemBody,
+                MsgraphMessage, MsgraphRecipient, list::MsgraphMessagesListParams,
+            },
+            todo::{
+                lists::{MsgraphTodoList, MsgraphTodoWellknownListName},
+                tasks::{MsgraphLinkedResource, MsgraphTodoTask, MsgraphTodoTaskStatus},
             },
         },
     },
@@ -672,6 +677,132 @@ fn ical_shapes() {
         |client| {
             if let Err(err) = client.calendar_delete(&calendar_id) {
                 report_leftover("calendar", &calendar_id, &err);
+            }
+        },
+    );
+}
+
+#[test]
+#[ignore = "requires Graph credentials and --ignored"]
+fn todo() {
+    let mut client = connect();
+    let name = format!("io-msgraph-test-{}", unix_millis());
+
+    let list_id = todo_list_create(&mut client, &name);
+
+    with_cleanup(
+        &mut client,
+        |client| {
+            todo_list_metadata(client, &list_id, &name);
+            todo_task_crud(client, &list_id, &name);
+            todo_tasks_delta(client, &list_id, &name);
+        },
+        |client| {
+            if let Err(err) = client.todo_list_delete(&list_id) {
+                report_leftover("to do list", &list_id, &err);
+            }
+        },
+    );
+}
+
+/// A task document written as the Android app writes one, round-tripped
+/// through a To Do list, then edited.
+#[cfg(feature = "ical")]
+#[test]
+#[ignore = "requires Graph credentials and --ignored"]
+fn ical_todo() {
+    use io_msgraph::v1::rest::users::todo::tasks::{
+        MsgraphTodoTaskStatus, ical::MSGRAPH_TODO_TASK_STASH_EXPAND,
+    };
+
+    const ZONE: &str = "Europe/Paris";
+
+    let mut client = connect();
+    let name = format!("io-msgraph-test-{}", unix_millis());
+    let uid = format!("{name}@pimalaya.org");
+
+    let list_id = todo_list_create(&mut client, &name);
+
+    with_cleanup(
+        &mut client,
+        |client| {
+            let document = todo_document(
+                &uid,
+                &[
+                    &format!("SUMMARY:{name}"),
+                    "DESCRIPTION:written by the io-msgraph suite",
+                    "DUE;VALUE=DATE:20300115",
+                    "PRIORITY:5",
+                    "STATUS:NEEDS-ACTION",
+                    "CATEGORIES:inbox,@phone",
+                    "CONTACT;ALTREP=\"mailto:lea@example.net\":Léa Martin",
+                    "RELATED-TO;RELTYPE=PARENT:project-1",
+                    "ATTACH:mid:abc%2F1@example.net",
+                    "X-PIMALAYA-TEST:kept verbatim",
+                ],
+            );
+            let written = MsgraphTodoTask::create_from_ical(document.as_bytes(), ZONE)
+                .expect("the document projects");
+            let created = client
+                .todo_task_create(&list_id, &written)
+                .expect("todo task create")
+                .response;
+
+            let fetched = client
+                .todo_task_get(
+                    &list_id,
+                    &created.id,
+                    None,
+                    Some(MSGRAPH_TODO_TASK_STASH_EXPAND),
+                )
+                .expect("todo task get")
+                .response;
+            assert_eq!(
+                fetched.stashed_uid().as_deref(),
+                Some(uid.as_str()),
+                "the UID rides the stash"
+            );
+            let read = fetched.to_ical(ZONE);
+            assert_eq!(todo_lines(&read), todo_lines(&document), "{read}");
+
+            let edited = read
+                .replace(
+                    &format!("SUMMARY:{name}"),
+                    &format!("SUMMARY:{name} renamed"),
+                )
+                .replace(
+                    "STATUS:NEEDS-ACTION",
+                    "STATUS:NEEDS-ACTION\r\nX-MSGRAPH-STATUS:waitingOnOthers",
+                )
+                .replace(
+                    "DUE;VALUE=DATE:20300115",
+                    "DUE;TZID=Europe/Paris:20300116T143000",
+                );
+            let patch = MsgraphTodoTask::update_from_ical(edited.as_bytes(), read.as_bytes(), ZONE)
+                .expect("the edited document projects");
+            client
+                .todo_task_update(&list_id, &created.id, &patch)
+                .expect("todo task update");
+
+            let refetched = client
+                .todo_task_get(
+                    &list_id,
+                    &created.id,
+                    None,
+                    Some(MSGRAPH_TODO_TASK_STASH_EXPAND),
+                )
+                .expect("todo task get after update")
+                .response;
+            assert_eq!(
+                refetched.status,
+                MsgraphField::Set(MsgraphTodoTaskStatus::WaitingOnOthers)
+            );
+            let reread = refetched.to_ical(ZONE);
+            assert_eq!(todo_lines(&reread), todo_lines(&edited), "{reread}");
+        },
+        |client| {
+            if let Err(err) = client.todo_list_delete(&list_id) {
+                report_leftover("to do list", &list_id, &err);
             }
         },
     );
@@ -1490,6 +1621,261 @@ fn events_delta(client: &mut MsgraphClientStd, calendar_id: &str, name: &str) {
             .response;
         page.value.iter().any(|delta| delta.event.id == created.id)
     });
+}
+
+fn todo_list_create(client: &mut MsgraphClientStd, name: &str) -> String {
+    let list = client
+        .todo_list_create(&MsgraphTodoList {
+            display_name: MsgraphField::Set(name.to_owned()),
+            ..Default::default()
+        })
+        .expect("todo list create")
+        .response;
+    assert_eq!(list.display_name.as_deref(), Some(name));
+    assert_eq!(
+        list.wellknown_list_name,
+        Some(MsgraphTodoWellknownListName::None)
+    );
+    list.id
+}
+
+/// The list read back, renamed, then found by the listing and by a lists
+/// delta round.
+fn todo_list_metadata(client: &mut MsgraphClientStd, list_id: &str, name: &str) {
+    let fetched = client
+        .todo_list_get(list_id)
+        .expect("todo list get")
+        .response;
+    assert_eq!(fetched.display_name.as_deref(), Some(name));
+    assert!(fetched.etag.is_some(), "a list carries its etag");
+
+    let renamed = format!("{name} renamed");
+    let updated = client
+        .todo_list_update(
+            list_id,
+            &MsgraphTodoList {
+                display_name: MsgraphField::Set(renamed.clone()),
+                ..Default::default()
+            },
+        )
+        .expect("todo list update")
+        .response;
+    assert_eq!(updated.display_name.as_deref(), Some(renamed.as_str()));
+
+    let mut listed = client
+        .todo_lists_list(&Default::default())
+        .expect("todo lists list")
+        .response;
+    let mut found = listed.value.iter().any(|list| list.id == list_id);
+    while let (false, Some(next)) = (found, listed.next_link.clone()) {
+        listed = client
+            .todo_lists_list_from_link(&next)
+            .expect("todo lists list page")
+            .response;
+        found = listed.value.iter().any(|list| list.id == list_id);
+    }
+    assert!(found, "the listing holds the list");
+
+    let mut page = client
+        .todo_lists_delta()
+        .expect("todo lists delta")
+        .response;
+    let mut found = page.value.iter().any(|delta| delta.list.id == list_id);
+    while let Some(next) = page.next_link.clone() {
+        page = client
+            .todo_lists_delta_from_link(&next)
+            .expect("todo lists delta page")
+            .response;
+        found |= page.value.iter().any(|delta| delta.list.id == list_id);
+    }
+    assert!(found, "the first delta round holds the list");
+    assert!(
+        page.delta_link.is_some(),
+        "a delta round ends on a delta link"
+    );
+}
+
+/// A task with every field To Do keeps: created, read back, patched
+/// (clearing its due date), listed and deleted.
+fn todo_task_crud(client: &mut MsgraphClientStd, list_id: &str, name: &str) {
+    let title = format!("{name} task");
+    let created = client
+        .todo_task_create(
+            list_id,
+            &MsgraphTodoTask {
+                title: MsgraphField::Set(title.clone()),
+                categories: MsgraphField::Set(vec!["inbox".into(), "@phone".into()]),
+                importance: MsgraphField::Set(MsgraphImportance::High),
+                status: MsgraphField::Set(MsgraphTodoTaskStatus::WaitingOnOthers),
+                due_date_time: MsgraphField::Set(MsgraphDateTimeTimeZone {
+                    date_time: "2030-01-15T00:00:00".into(),
+                    time_zone: Some("Europe/Paris".into()),
+                }),
+                linked_resources: vec![MsgraphLinkedResource {
+                    web_url: Some("mid:abc@example.com".into()),
+                    application_name: Some("io-msgraph".into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        )
+        .expect("todo task create")
+        .response;
+    assert!(created.etag.is_some(), "a task carries its etag");
+    assert_eq!(
+        created.categories.as_option().map(Vec::as_slice),
+        Some(&["inbox".to_owned(), "@phone".to_owned()][..]),
+        "categories take any string"
+    );
+    assert_eq!(
+        created.linked_resources[0].web_url.as_deref(),
+        Some("mid:abc@example.com"),
+        "a linked resource keeps a mid: URI"
+    );
+
+    let fetched = client
+        .todo_task_get(list_id, &created.id, None, Some("checklistItems"))
+        .expect("todo task get")
+        .response;
+    assert_eq!(fetched.title.as_deref(), Some(title.as_str()));
+    assert_eq!(
+        fetched.status,
+        MsgraphField::Set(MsgraphTodoTaskStatus::WaitingOnOthers)
+    );
+
+    let updated = client
+        .todo_task_update(
+            list_id,
+            &created.id,
+            &MsgraphTodoTask {
+                title: MsgraphField::Set(format!("{title} renamed")),
+                due_date_time: MsgraphField::Null,
+                ..Default::default()
+            },
+        )
+        .expect("todo task update")
+        .response;
+    assert_eq!(
+        updated.due_date_time,
+        MsgraphField::Unset,
+        "the due date is cleared"
+    );
+    assert_ne!(updated.etag, created.etag, "an edit moves the etag");
+
+    let listed = client
+        .todo_tasks_list(list_id, &Default::default())
+        .expect("todo tasks list")
+        .response;
+    assert!(listed.value.iter().any(|task| task.id == created.id));
+
+    let items = client
+        .checklist_items_list(list_id, &created.id)
+        .expect("checklist items list")
+        .response;
+    assert!(items.value.is_empty());
+
+    client
+        .todo_task_delete(list_id, &created.id)
+        .expect("todo task delete");
+    let err = client
+        .todo_task_get(list_id, &created.id, None, None)
+        .expect_err("a deleted task is gone");
+    assert!(
+        matches!(&err, MsgraphClientStdError::Send(err) if err.status() == Some(404)),
+        "got: {err:?}"
+    );
+}
+
+/// A tasks delta round, then the next one listing a created task and its
+/// removal.
+fn todo_tasks_delta(client: &mut MsgraphClientStd, list_id: &str, name: &str) {
+    let mut page = client
+        .todo_tasks_delta(list_id, None)
+        .expect("todo tasks delta")
+        .response;
+    while let Some(next) = page.next_link.clone() {
+        page = client
+            .todo_tasks_delta_from_link(&next)
+            .expect("todo tasks delta page")
+            .response;
+    }
+    let delta_link = page.delta_link.expect("a delta round ends on a delta link");
+
+    let created = client
+        .todo_task_create(
+            list_id,
+            &MsgraphTodoTask {
+                title: MsgraphField::Set(format!("{name} delta")),
+                ..Default::default()
+            },
+        )
+        .expect("todo task create for delta")
+        .response;
+
+    let mut next_round = None;
+    eventually("the delta lists the new task", || {
+        let page = client
+            .todo_tasks_delta_from_link(&delta_link)
+            .expect("todo tasks delta from link")
+            .response;
+        next_round = page.delta_link.clone();
+        page.value.iter().any(|delta| delta.task.id == created.id)
+    });
+
+    client
+        .todo_task_delete(list_id, &created.id)
+        .expect("todo task delete for delta");
+    let next_round = next_round.expect("the round ends on a delta link");
+
+    eventually("the delta lists the removal", || {
+        let page = client
+            .todo_tasks_delta_from_link(&next_round)
+            .expect("todo tasks delta after the removal")
+            .response;
+        page.value.iter().any(|delta| {
+            delta.task.id == created.id
+                && delta
+                    .removed
+                    .as_ref()
+                    .is_some_and(|removed| removed.reason == "deleted")
+        })
+    });
+}
+
+/// A one-task document holding `lines` beside its UID.
+#[cfg(feature = "ical")]
+fn todo_document(uid: &str, lines: &[&str]) -> String {
+    let mut document = vec![
+        String::from("BEGIN:VCALENDAR"),
+        String::from("VERSION:2.0"),
+        String::from("PRODID:-//Pimalaya//io-msgraph tests//EN"),
+        String::from("BEGIN:VTODO"),
+        format!("UID:{uid}"),
+        String::from("DTSTAMP:20260101T000000Z"),
+    ];
+    document.extend(lines.iter().map(|line| String::from(*line)));
+    document.push(String::from("END:VTODO"));
+    document.push(String::from("END:VCALENDAR"));
+    document.push(String::new());
+    document.join("\r\n")
+}
+
+/// The VTODO lines of a document, Graph's stamps aside, sorted.
+#[cfg(feature = "ical")]
+fn todo_lines(document: &str) -> Vec<&str> {
+    let start = document.find("BEGIN:VTODO").expect("a VTODO");
+    let end = document.find("END:VTODO").expect("an END:VTODO");
+    let mut lines: Vec<&str> = document[start..end]
+        .split("\r\n")
+        .filter(|line| !line.is_empty())
+        .filter(|line| {
+            !["DTSTAMP", "CREATED", "LAST-MODIFIED"]
+                .iter()
+                .any(|stamp| line.starts_with(stamp))
+        })
+        .collect();
+    lines.sort_unstable();
+    lines
 }
 
 /// A one-event document with the given timing lines (DTSTART, DTEND,

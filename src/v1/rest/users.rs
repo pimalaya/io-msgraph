@@ -1,6 +1,6 @@
 //! Microsoft Graph user resource (`users`, or the `me` shortcut),
 //! including its mail folders, messages, the sendMail action, contact
-//! folders, contacts, calendars and events.
+//! folders, contacts, calendars, events and To Do task lists.
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/resources/user>
 
@@ -16,6 +16,7 @@ pub mod get;
 pub mod mail_folders;
 pub mod messages;
 pub mod send_mail;
+pub mod todo;
 
 /// A Microsoft Graph user (the signed-in mailbox owner via `me`).
 #[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]

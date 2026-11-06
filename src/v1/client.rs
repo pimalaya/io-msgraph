@@ -134,6 +134,33 @@ use crate::{
             update::MsgraphMessageUpdate,
         },
         send_mail::{MsgraphMailSend, MsgraphMailSendMime},
+        todo::{
+            lists::{
+                MsgraphTodoList,
+                create::MsgraphTodoListCreate,
+                delete::MsgraphTodoListDelete,
+                delta::{MsgraphTodoListsDelta, MsgraphTodoListsDeltaResponse},
+                get::MsgraphTodoListGet,
+                list::{
+                    MsgraphTodoListsList, MsgraphTodoListsListParams, MsgraphTodoListsListResponse,
+                },
+                update::MsgraphTodoListUpdate,
+            },
+            tasks::{
+                MsgraphTodoTask,
+                checklist_items::list::{
+                    MsgraphChecklistItemsList, MsgraphChecklistItemsListResponse,
+                },
+                create::MsgraphTodoTaskCreate,
+                delete::MsgraphTodoTaskDelete,
+                delta::{MsgraphTodoTasksDelta, MsgraphTodoTasksDeltaResponse},
+                get::MsgraphTodoTaskGet,
+                list::{
+                    MsgraphTodoTasksList, MsgraphTodoTasksListParams, MsgraphTodoTasksListResponse,
+                },
+                update::MsgraphTodoTaskUpdate,
+            },
+        },
     },
     v1::send::{MsgraphNoResponse, MsgraphSendError, MsgraphSendOutput},
 };
@@ -845,6 +872,174 @@ impl MsgraphClientStd {
         if let Some(size) = max_page_size {
             coroutine = coroutine.max_page_size(size);
         }
+        self.run(coroutine)
+    }
+
+    /// Lists the user's To Do task lists.
+    pub fn todo_lists_list(
+        &mut self,
+        params: &MsgraphTodoListsListParams,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoListsListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoListsList::new(&self.auth, &self.user_id, params)?;
+        self.run(coroutine)
+    }
+
+    /// Continues a task lists listing from an `@odata.nextLink`.
+    pub fn todo_lists_list_from_link(
+        &mut self,
+        link: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoListsListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoListsList::from_link(&self.auth, link)?;
+        self.run(coroutine)
+    }
+
+    /// Gets the task list `id`.
+    pub fn todo_list_get(
+        &mut self,
+        id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoList>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoListGet::new(&self.auth, &self.user_id, id)?;
+        self.run(coroutine)
+    }
+
+    /// Creates a task list.
+    pub fn todo_list_create(
+        &mut self,
+        list: &MsgraphTodoList,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoList>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoListCreate::new(&self.auth, &self.user_id, list)?;
+        self.run(coroutine)
+    }
+
+    /// Patches the task list `id`.
+    pub fn todo_list_update(
+        &mut self,
+        id: &str,
+        list: &MsgraphTodoList,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoList>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoListUpdate::new(&self.auth, &self.user_id, id, list)?;
+        self.run(coroutine)
+    }
+
+    /// Deletes the task list `id` and its tasks.
+    pub fn todo_list_delete(
+        &mut self,
+        id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphNoResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoListDelete::new(&self.auth, &self.user_id, id)?;
+        self.run(coroutine)
+    }
+
+    /// Starts a task lists delta round.
+    pub fn todo_lists_delta(
+        &mut self,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoListsDeltaResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoListsDelta::new(&self.auth, &self.user_id)?;
+        self.run(coroutine)
+    }
+
+    /// Continues or restarts a task lists delta round from a link.
+    pub fn todo_lists_delta_from_link(
+        &mut self,
+        link: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoListsDeltaResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoListsDelta::from_link(&self.auth, link)?;
+        self.run(coroutine)
+    }
+
+    /// Lists the tasks of the list `list_id`.
+    pub fn todo_tasks_list(
+        &mut self,
+        list_id: &str,
+        params: &MsgraphTodoTasksListParams,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoTasksListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoTasksList::new(&self.auth, &self.user_id, list_id, params)?;
+        self.run(coroutine)
+    }
+
+    /// Continues a tasks listing from an `@odata.nextLink`.
+    pub fn todo_tasks_list_from_link(
+        &mut self,
+        link: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoTasksListResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoTasksList::from_link(&self.auth, link)?;
+        self.run(coroutine)
+    }
+
+    /// Gets the task `id` of the list `list_id`, selecting `select` and
+    /// expanding `expand` when given.
+    pub fn todo_task_get(
+        &mut self,
+        list_id: &str,
+        id: &str,
+        select: Option<&str>,
+        expand: Option<&str>,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoTask>, MsgraphClientStdError> {
+        let coroutine =
+            MsgraphTodoTaskGet::new(&self.auth, &self.user_id, list_id, id, select, expand)?;
+        self.run(coroutine)
+    }
+
+    /// Creates a task in the list `list_id`.
+    pub fn todo_task_create(
+        &mut self,
+        list_id: &str,
+        task: &MsgraphTodoTask,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoTask>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoTaskCreate::new(&self.auth, &self.user_id, list_id, task)?;
+        self.run(coroutine)
+    }
+
+    /// Patches the task `id` of the list `list_id`.
+    pub fn todo_task_update(
+        &mut self,
+        list_id: &str,
+        id: &str,
+        task: &MsgraphTodoTask,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoTask>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoTaskUpdate::new(&self.auth, &self.user_id, list_id, id, task)?;
+        self.run(coroutine)
+    }
+
+    /// Deletes the task `id` of the list `list_id`.
+    pub fn todo_task_delete(
+        &mut self,
+        list_id: &str,
+        id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphNoResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoTaskDelete::new(&self.auth, &self.user_id, list_id, id)?;
+        self.run(coroutine)
+    }
+
+    /// Starts a delta round over the tasks of the list `list_id`, trimmed
+    /// to `select` when given.
+    pub fn todo_tasks_delta(
+        &mut self,
+        list_id: &str,
+        select: Option<&str>,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoTasksDeltaResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoTasksDelta::new(&self.auth, &self.user_id, list_id, select)?;
+        self.run(coroutine)
+    }
+
+    /// Continues or restarts a tasks delta round from a link.
+    pub fn todo_tasks_delta_from_link(
+        &mut self,
+        link: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphTodoTasksDeltaResponse>, MsgraphClientStdError> {
+        let coroutine = MsgraphTodoTasksDelta::from_link(&self.auth, link)?;
+        self.run(coroutine)
+    }
+
+    /// Lists the checklist items of the task `task_id` of the list
+    /// `list_id`.
+    pub fn checklist_items_list(
+        &mut self,
+        list_id: &str,
+        task_id: &str,
+    ) -> Result<MsgraphSendOutput<MsgraphChecklistItemsListResponse>, MsgraphClientStdError> {
+        let coroutine =
+            MsgraphChecklistItemsList::new(&self.auth, &self.user_id, list_id, task_id)?;
         self.run(coroutine)
     }
 

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added I/O-free To Do task list coroutines `MsgraphTodoListsList`, `MsgraphTodoListGet`, `MsgraphTodoListCreate`, `MsgraphTodoListUpdate`, `MsgraphTodoListDelete` and `MsgraphTodoListsDelta`, over `MsgraphTodoList`.
+- Added I/O-free To Do task coroutines `MsgraphTodoTasksList`, `MsgraphTodoTaskGet`, `MsgraphTodoTaskCreate`, `MsgraphTodoTaskUpdate`, `MsgraphTodoTaskDelete` and `MsgraphTodoTasksDelta`, over `MsgraphTodoTask`.
+
+  A task's and a list's `etag` (`@odata.etag`) is their revision. Linked resources come inline, checklist items when expanded.
+- Added I/O-free `MsgraphChecklistItemsList` coroutine.
+- Added the iCalendar projection of a To Do task, `MsgraphTodoTask::to_ical`, `from_ical`, `create_from_ical`, `update_from_ical` and `stashed_uid` (requires `ical` feature).
+
+  Dates are told in a zone the caller passes, and every line without a Graph field is stashed as events do, read back through `MSGRAPH_TODO_TASK_STASH_EXPAND`.
+- Added the To Do methods of `MsgraphClientStd`.
+
 ### Fixed
 
 - Fixed `MsgraphEvent::to_ical` scattering the lines of a stashed alarm, an alarm Graph's reminder cannot hold, across the event.
