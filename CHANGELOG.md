@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-11
+
 ### Added
 
 - Added I/O-free To Do task list coroutines `MsgraphTodoListsList`, `MsgraphTodoListGet`, `MsgraphTodoListCreate`, `MsgraphTodoListUpdate`, `MsgraphTodoListDelete` and `MsgraphTodoListsDelta`, over `MsgraphTodoList`.
@@ -190,7 +192,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added the contacts surface: contact folders and contacts, with delta.
 - Added `MsgraphClientStd` (`client` feature), a std blocking client with a `connect` constructor behind the TLS features.
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.7.0..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.7.1..HEAD
+[0.7.1]: https://github.com/pimalaya/io-msgraph/compare/v0.7.0..v0.7.1
 [0.7.0]: https://github.com/pimalaya/io-msgraph/compare/v0.6.0..v0.7.0
 [0.6.0]: https://github.com/pimalaya/io-msgraph/compare/v0.5.0..v0.6.0
 [0.5.0]: https://github.com/pimalaya/io-msgraph/compare/v0.4.7..v0.5.0
