@@ -62,7 +62,7 @@ impl MsgraphTodoListsList {
         debug!("prepare microsoft graph to do lists listing");
         trace!("params: {params:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/todo/lists"))?;
         url.query_pairs_mut().extend_pairs(to_query_pairs(params));
 

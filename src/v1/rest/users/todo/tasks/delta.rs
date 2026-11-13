@@ -80,7 +80,7 @@ impl MsgraphTodoTasksDelta {
         debug!("prepare microsoft graph to do tasks delta");
         trace!("list: {list_id:?}, select: {select:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let path = format!("{user}/todo/lists/{}/tasks/delta", path_segment(list_id)?);
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;
         if let Some(select) = select {

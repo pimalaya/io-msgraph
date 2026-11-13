@@ -383,7 +383,7 @@ pub enum MsgraphEventIcalError {
     NotAnEvent(String),
     /// The VEVENT starts neither on a date, in UTC nor in a named zone.
     NoZonedStart,
-    /// The VEVENT has neither a DTEND nor a DURATION.
+    /// The VEVENT has a DTEND or a DURATION that gives no end.
     NoEnd,
     /// The RRULE has no Graph recurrence pattern.
     UnsupportedRecurrence(String),
@@ -406,7 +406,7 @@ impl fmt::Display for MsgraphEventIcalError {
                 f,
                 "Microsoft Graph needs a DTSTART that is a date, in UTC, or in a named zone"
             ),
-            Self::NoEnd => write!(f, "The VEVENT has neither a DTEND nor a DURATION"),
+            Self::NoEnd => write!(f, "The VEVENT has a DTEND or a DURATION that gives no end"),
             Self::UnsupportedRecurrence(rule) => {
                 write!(f, "Microsoft Graph cannot hold the recurrence `{rule}`")
             }
@@ -490,8 +490,9 @@ fn project(vevent: &IcalCst<'_>) -> Result<MsgraphEvent, MsgraphEventIcalError> 
                             true
                         }
                         Ok(IcalPropKind::Duration) => {
-                            duration = line.raw_value_str().trim().parse::<Span>().ok();
-                            duration.is_some()
+                            let span = line.raw_value_str().trim().parse::<Span>().ok();
+                            duration = Some(span);
+                            span.is_some()
                         }
                         Ok(IcalPropKind::RRule) => {
                             rrule = Some(IcalRecur::decode(&line.value).0.trim().to_owned());
@@ -575,9 +576,15 @@ fn project(vevent: &IcalCst<'_>) -> Result<MsgraphEvent, MsgraphEventIcalError> 
     };
     let end = match (end, duration) {
         (Some(Some(end)), _) => end,
-        (_, Some(duration)) => start
+        (_, Some(Some(duration))) => start
             .shifted(duration)
             .ok_or(MsgraphEventIcalError::NoEnd)?,
+        // NOTE: with neither line, a date lasts its day and a date-time
+        // ends as it starts (RFC 5545 3.6.1).
+        (None, None) => {
+            let implied = Span::new().days(i64::from(start.all_day));
+            start.shifted(implied).ok_or(MsgraphEventIcalError::NoEnd)?
+        }
         _ => return Err(MsgraphEventIcalError::NoEnd),
     };
 
@@ -1242,6 +1249,7 @@ pub(crate) fn recurrence(
     let mut count = None;
     let mut until_value = None;
     let mut by_day = Vec::new();
+    let mut ordinals = Vec::new();
     let mut by_month_day = None;
     let mut by_month = None;
     let mut by_setpos = None;
@@ -1260,9 +1268,14 @@ pub(crate) fn recurrence(
                         .split_at_checked(day.len().saturating_sub(2))
                         .ok_or_else(unsupported)?;
                     if !ordinal.is_empty() {
-                        by_setpos = Some(ordinal.parse::<i32>().map_err(|_| unsupported())?);
+                        ordinals.push(ordinal.parse::<i32>().map_err(|_| unsupported())?);
                     }
-                    by_day.push(weekday_from_ical(name).ok_or_else(unsupported)?);
+
+                    let day = weekday_from_ical(name).ok_or_else(unsupported)?;
+                    if by_day.contains(&day) {
+                        return Err(unsupported());
+                    }
+                    by_day.push(day);
                 }
             }
             "BYMONTHDAY" => by_month_day = Some(value.parse::<u32>().map_err(|_| unsupported())?),
@@ -1273,7 +1286,15 @@ pub(crate) fn recurrence(
         }
     }
 
-    let index = match by_setpos {
+    // NOTE: Graph counts one index over all its days, so a numbered day
+    // stands alone.
+    let position = match (ordinals.as_slice(), by_setpos) {
+        ([], position) => position,
+        ([ordinal], None) if by_day.len() == 1 => Some(*ordinal),
+        _ => return Err(unsupported()),
+    };
+
+    let index = match position {
         None => None,
         Some(1) => Some(MsgraphWeekIndex::First),
         Some(2) => Some(MsgraphWeekIndex::Second),
@@ -1299,18 +1320,28 @@ pub(crate) fn recurrence(
         days_of_week.push(weekday_of(date));
     }
 
-    let (day_of_month, month) = match pattern_type {
-        MsgraphRecurrencePatternType::AbsoluteMonthly => {
-            (Some(by_month_day.unwrap_or(date.day() as u32)), None)
+    // NOTE: without a BYMONTH, a yearly BYMONTHDAY repeats every month and a
+    // yearly BYDAY counts over the year (RFC 5545 3.3.10).
+    let (day_of_month, month) = match (pattern_type, by_month_day, by_month) {
+        (
+            MsgraphRecurrencePatternType::Daily
+            | MsgraphRecurrencePatternType::Weekly
+            | MsgraphRecurrencePatternType::RelativeMonthly,
+            None,
+            None,
+        ) => (None, None),
+        (MsgraphRecurrencePatternType::AbsoluteMonthly, day, None) => {
+            (Some(day.unwrap_or(date.day() as u32)), None)
         }
-        MsgraphRecurrencePatternType::AbsoluteYearly => (
-            Some(by_month_day.unwrap_or(date.day() as u32)),
-            Some(by_month.unwrap_or(date.month() as u32)),
+        (MsgraphRecurrencePatternType::AbsoluteYearly, None, month) => (
+            Some(date.day() as u32),
+            Some(month.unwrap_or(date.month() as u32)),
         ),
-        MsgraphRecurrencePatternType::RelativeYearly => {
-            (None, Some(by_month.unwrap_or(date.month() as u32)))
+        (MsgraphRecurrencePatternType::AbsoluteYearly, Some(day), Some(month)) => {
+            (Some(day), Some(month))
         }
-        _ => (None, None),
+        (MsgraphRecurrencePatternType::RelativeYearly, None, Some(month)) => (None, Some(month)),
+        _ => return Err(unsupported()),
     };
 
     let zone_name = (!start.all_day).then(|| start.zone.clone());
@@ -1322,7 +1353,21 @@ pub(crate) fn recurrence(
         },
         (None, Some(until)) => {
             let day = until.get(..8).ok_or_else(unsupported)?;
-            let end = Date::strptime("%Y%m%d", day).map_err(|_| unsupported())?;
+            let mut end = Date::strptime("%Y%m%d", day).map_err(|_| unsupported())?;
+
+            // NOTE: a UTC stamp ends the series on the date it falls on in
+            // the series zone, which is the date Graph counts in.
+            if !start.all_day
+                && let Some(local) = until.strip_suffix('Z')
+                && let Zone::Iana(name) = zone(Some(&start.zone))
+                && let Ok(series) = TimeZone::get(&name)
+            {
+                let instant = DateTime::strptime("%Y%m%dT%H%M%S", local)
+                    .and_then(|local| local.to_zoned(TimeZone::UTC))
+                    .map_err(|_| unsupported())?;
+                end = instant.with_time_zone(series).date();
+            }
+
             MsgraphRecurrenceRange {
                 range_type: Some(MsgraphRecurrenceRangeType::EndDate),
                 end_date: Some(end.strftime("%Y-%m-%d").to_string()),
@@ -2403,6 +2448,170 @@ mod tests {
                 Err(MsgraphEventIcalError::UnsupportedRecurrence(refused)) if refused == rule
             ));
         }
+    }
+
+    /// A start at `local` in `zone`.
+    fn starting(local: &str, zone: &str) -> Boundary {
+        Boundary {
+            local: local.parse().unwrap(),
+            all_day: false,
+            zone: zone.into(),
+        }
+    }
+
+    #[test]
+    fn an_until_ends_on_its_date_in_the_series_zone() {
+        let end = |start: &Boundary, until: &str| {
+            let rule = format!("FREQ=DAILY;UNTIL={until}");
+            recurrence(&rule, start).unwrap().range.end_date
+        };
+
+        // NOTE: the end of 31 December in New York is 1 January in UTC.
+        for zone in ["America/New_York", "Eastern Standard Time"] {
+            let evening = starting("2026-12-01T20:00:00", zone);
+            assert_eq!(
+                end(&evening, "20270101T045959Z").as_deref(),
+                Some("2026-12-31"),
+                "{zone}"
+            );
+        }
+
+        // NOTE: 01:00 on 10 January in Tokyo is 9 January in UTC.
+        let morning = starting("2026-01-01T01:00:00", "Asia/Tokyo");
+        assert_eq!(
+            end(&morning, "20260109T160000Z").as_deref(),
+            Some("2026-01-10")
+        );
+
+        let evening = starting("2026-12-01T20:00:00", "America/New_York");
+        assert_eq!(end(&evening, "20261231").as_deref(), Some("2026-12-31"));
+        assert_eq!(
+            end(&evening, "20261231T200000").as_deref(),
+            Some("2026-12-31")
+        );
+
+        let written = recurrence("FREQ=DAILY;UNTIL=20270101T045959Z", &evening).unwrap();
+        assert_eq!(
+            rrule(&written, None, false).as_deref(),
+            Some("FREQ=DAILY;UNTIL=20270101T045959Z")
+        );
+    }
+
+    #[test]
+    fn a_rule_graph_would_only_approximate_is_refused() {
+        let monday = starting("2026-03-02T09:00:00", "Europe/Paris");
+
+        for rule in [
+            "FREQ=DAILY;BYMONTH=1",
+            "FREQ=DAILY;BYMONTHDAY=1",
+            "FREQ=WEEKLY;BYMONTH=1",
+            "FREQ=WEEKLY;BYDAY=MO,MO",
+            "FREQ=MONTHLY;BYMONTH=3;BYMONTHDAY=1",
+            "FREQ=MONTHLY;BYDAY=1MO,3MO",
+            "FREQ=MONTHLY;BYDAY=MO,2TU",
+            "FREQ=MONTHLY;BYDAY=2TU,2WE",
+            "FREQ=MONTHLY;BYDAY=1MO;BYSETPOS=1",
+            "FREQ=MONTHLY;BYSETPOS=1;BYDAY=1MO",
+            "FREQ=MONTHLY;BYDAY=MO;BYSETPOS=1;BYMONTHDAY=2",
+            "FREQ=YEARLY;BYMONTHDAY=15",
+            "FREQ=YEARLY;BYDAY=1MO",
+            "FREQ=YEARLY;BYDAY=MO;BYSETPOS=1",
+        ] {
+            assert!(
+                matches!(
+                    recurrence(rule, &monday),
+                    Err(MsgraphEventIcalError::UnsupportedRecurrence(refused)) if refused == rule
+                ),
+                "{rule}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_rule_graph_holds_exactly_is_taken() {
+        let monday = starting("2026-03-02T09:00:00", "Europe/Paris");
+        let pattern = |rule: &str| recurrence(rule, &monday).unwrap().pattern;
+
+        let relative = pattern("FREQ=MONTHLY;BYDAY=2TU");
+        assert_eq!(
+            relative.pattern_type,
+            Some(MsgraphRecurrencePatternType::RelativeMonthly)
+        );
+        assert_eq!(relative.index, Some(MsgraphWeekIndex::Second));
+        assert_eq!(relative.days_of_week, [MsgraphDayOfWeek::Tuesday]);
+
+        let last = pattern("FREQ=MONTHLY;BYSETPOS=-1;BYDAY=MO,TU,WE,TH,FR");
+        assert_eq!(last.index, Some(MsgraphWeekIndex::Last));
+        assert_eq!(last.days_of_week.len(), 5);
+
+        let monthly = pattern("FREQ=MONTHLY");
+        assert_eq!((monthly.day_of_month, monthly.month), (Some(2), None));
+
+        for rule in ["FREQ=YEARLY", "FREQ=YEARLY;BYMONTH=3"] {
+            let yearly = pattern(rule);
+            assert_eq!(
+                yearly.pattern_type,
+                Some(MsgraphRecurrencePatternType::AbsoluteYearly)
+            );
+            assert_eq!((yearly.day_of_month, yearly.month), (Some(2), Some(3)));
+        }
+
+        let yearly = pattern("FREQ=YEARLY;BYMONTH=5;BYMONTHDAY=15");
+        assert_eq!((yearly.day_of_month, yearly.month), (Some(15), Some(5)));
+
+        let relative = pattern("FREQ=YEARLY;BYMONTH=5;BYDAY=2SU");
+        assert_eq!(
+            relative.pattern_type,
+            Some(MsgraphRecurrencePatternType::RelativeYearly)
+        );
+        assert_eq!((relative.day_of_month, relative.month), (None, Some(5)));
+
+        // NOTE: every spelling the projection writes reads back as written.
+        for rule in [
+            "FREQ=DAILY;INTERVAL=2",
+            "FREQ=WEEKLY;BYDAY=MO,FR;WKST=SU;COUNT=10",
+            "FREQ=MONTHLY;BYMONTHDAY=2",
+            "FREQ=MONTHLY;BYDAY=MO,TU;BYSETPOS=2",
+            "FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=2",
+            "FREQ=YEARLY;BYMONTH=3;BYDAY=MO;BYSETPOS=-1",
+        ] {
+            let read = recurrence(rule, &monday).unwrap();
+            assert_eq!(rrule(&read, None, false).as_deref(), Some(rule));
+        }
+    }
+
+    #[test]
+    fn an_event_without_an_end_takes_the_one_its_start_implies() {
+        let with = |props: &str| {
+            let doc = format!(
+                "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\n{props}END:VEVENT\r\nEND:VCALENDAR\r\n"
+            );
+            MsgraphEvent::from_ical(doc.as_bytes())
+        };
+
+        // NOTE: RFC 5545 3.6.1: one day for a date, no time for a date-time.
+        let day = with("DTSTART;VALUE=DATE:20261225\r\n").unwrap();
+        assert_eq!(day.is_all_day, MsgraphField::Set(true));
+        assert_eq!(
+            day.end.as_option().map(|end| end.date_time.as_str()),
+            Some("2026-12-26T00:00:00")
+        );
+
+        let instant = with("DTSTART;TZID=Europe/Paris:20261225T090000\r\n").unwrap();
+        assert_eq!(instant.end, instant.start);
+        assert_eq!(
+            instant.end.as_option().map(|end| end.date_time.as_str()),
+            Some("2026-12-25T09:00:00")
+        );
+
+        assert!(matches!(
+            with("DTSTART:20261225T090000Z\r\nDURATION:soon\r\n"),
+            Err(MsgraphEventIcalError::NoEnd)
+        ));
+        assert!(matches!(
+            with("DTSTART:20261225T090000Z\r\nDTEND:20261225T100000\r\n"),
+            Err(MsgraphEventIcalError::NoEnd)
+        ));
     }
 
     #[test]

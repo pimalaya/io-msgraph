@@ -2021,7 +2021,7 @@ fn vcard_document(uid: &str, name: &str, note: bool) -> String {
         String::from("VERSION:4.0"),
         format!("UID:{uid}"),
         format!("FN:{name} Test"),
-        format!("N:Test;{name};;;"),
+        format!("N:Test;{name};;;Jr."),
         String::from("EMAIL;TYPE=work:io-msgraph-test@example.com"),
         String::from("TEL;TYPE=cell:+1 234 567 890"),
         String::from("ORG:Pimalaya"),

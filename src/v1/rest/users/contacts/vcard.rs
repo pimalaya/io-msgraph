@@ -120,20 +120,21 @@ impl MsgraphContact {
             display_name(contact),
         ));
 
-        // NOTE: the Graph title is the honorific (Dr., Mrs.), hence the N
-        // prefix slot; the job title maps to TITLE below.
+        // NOTE: the Graph title is the honorific (Dr., Mrs.) and the
+        // generation the suffix (Jr.); the job title maps to TITLE below.
         let n = VcardN {
             family: component(&contact.surname),
             given: component(&contact.given_name),
             additional: component(&contact.middle_name),
             prefixes: component(&contact.title),
-            suffixes: Vec::new(),
+            suffixes: component(&contact.generation),
         };
 
         let empty = n.family.is_empty()
             && n.given.is_empty()
             && n.additional.is_empty()
-            && n.prefixes.is_empty();
+            && n.prefixes.is_empty()
+            && n.suffixes.is_empty();
         if !empty {
             card.push(VcardProp {
                 group: None,
@@ -327,6 +328,7 @@ impl MsgraphContact {
         let mut given_name = None;
         let mut middle_name = None;
         let mut title = None;
+        let mut generation = None;
         let mut nick_name = None;
         let mut emails = Vec::new();
         let mut ims = Vec::new();
@@ -379,6 +381,7 @@ impl MsgraphContact {
                         set_first(&mut given_name, n.given.join(" "));
                         set_first(&mut middle_name, n.additional.join(" "));
                         set_first(&mut title, n.prefixes.join(" "));
+                        set_first(&mut generation, n.suffixes.join(" "));
                         true
                     } else {
                         false
@@ -421,7 +424,11 @@ impl MsgraphContact {
                         false
                     } else {
                         let types = type_values(line);
-                        if types.iter().any(|t| t == "cell") {
+                        if types.iter().any(|t| t == "fax" || t == "pager") {
+                            // NOTE: Graph has no slot for either, and a
+                            // phone slot would have them called.
+                            false
+                        } else if types.iter().any(|t| t == "cell") {
                             // NOTE: one mobile slot; further cell TELs are
                             // stashed rather than misfiled as business
                             // phones.
@@ -610,6 +617,7 @@ impl MsgraphContact {
             surname: MsgraphField::set_or_null(surname),
             nick_name: MsgraphField::set_or_null(nick_name),
             title: MsgraphField::set_or_null(title),
+            generation: MsgraphField::set_or_null(generation),
             email_addresses: MsgraphField::Set(emails),
             im_addresses: MsgraphField::Set(ims),
             business_phones: MsgraphField::Set(business_phones),
@@ -673,6 +681,7 @@ impl MsgraphContact {
             surname,
             nick_name,
             title,
+            generation,
             email_addresses,
             im_addresses,
             business_phones,
@@ -875,7 +884,7 @@ impl MsgraphContact {
             let (line, _) = VcardLine::take(bytes.as_bytes()).ok()?;
             line.bare_name()
                 .eq_ignore_ascii_case("UID")
-                .then(|| line.raw_value_str().trim().to_string())
+                .then(|| line.value.to_string().trim().to_string())
                 .filter(|uid| !uid.is_empty())
         })
     }
@@ -912,17 +921,18 @@ fn joined(components: &[Cow<'_, str>]) -> Option<String> {
     }
 }
 
-/// Collects every TYPE parameter value, lowercased.
+/// Collects every type of a line, lowercased: the values of its TYPE
+/// parameters, a quoted list among them, and its bare vCard 2.1 parameters.
 fn type_values(line: &VcardLine) -> Vec<String> {
     let mut types = Vec::new();
     for param in &line.params {
-        if param.name.get().eq_ignore_ascii_case("TYPE") {
-            types.extend(
-                param
-                    .values
-                    .iter()
-                    .map(|value| value.get().to_ascii_lowercase()),
-            );
+        if param.values.is_empty() {
+            types.push(param.name.get().to_ascii_lowercase());
+        } else if param.name.get().eq_ignore_ascii_case("TYPE") {
+            for value in &param.values {
+                let list = value.get().trim_matches('"').split(',');
+                types.extend(list.map(str::to_ascii_lowercase));
+            }
         }
     }
     types
@@ -941,6 +951,7 @@ mod tests {
             middle_name: MsgraphField::Set("Q.".into()),
             surname: MsgraphField::Set("Doe".into()),
             title: MsgraphField::Set("Dr.".into()),
+            generation: MsgraphField::Set("Jr.".into()),
             nick_name: MsgraphField::Set("Janie".into()),
             email_addresses: MsgraphField::Set(vec![MsgraphEmailAddress {
                 name: None,
@@ -994,7 +1005,7 @@ mod tests {
         assert!(vcard.contains("VERSION:4.0\r\n"));
         assert!(vcard.contains("UID:AAMkAGI2\r\n"));
         assert!(vcard.contains("FN:Jane Doe\r\n"));
-        assert!(vcard.contains("N:Doe;Jane;Q.;Dr.;\r\n"));
+        assert!(vcard.contains("N:Doe;Jane;Q.;Dr.;Jr.\r\n"));
         assert!(vcard.contains("NICKNAME:Janie\r\n"));
         assert!(vcard.contains("EMAIL:jane@doe.org\r\n"));
         assert!(vcard.contains("IMPP:xmpp:jane@doe.org\r\n"));
@@ -1378,6 +1389,75 @@ mod tests {
         let back = unfolded(&contact.to_vcard());
         for line in &lines {
             assert!(back.contains(line), "{back:?}");
+        }
+    }
+
+    #[test]
+    fn a_uid_holding_separators_is_answered_whole() {
+        let card = stashing("UID:urn:x:a,b;c", "\r\n");
+
+        let contact = MsgraphContact::create_from_vcard(&card).unwrap();
+
+        assert_eq!(contact.stashed_uid().as_deref(), Some("urn:x:a,b;c"));
+        assert!(contact.to_vcard().contains("UID:urn:x:a,b;c\r\n"));
+    }
+
+    #[test]
+    fn a_name_suffix_rides_the_generation() {
+        let card = stashing("N:King;Martin;Luther;Dr.;Jr.", "\r\n");
+
+        let contact = MsgraphContact::from_vcard(&card).unwrap();
+        assert_eq!(contact.generation, MsgraphField::Set("Jr.".into()));
+        assert_eq!(serde_json::to_value(&contact).unwrap()["generation"], "Jr.");
+        assert!(
+            contact
+                .to_vcard()
+                .contains("N:King;Martin;Luther;Dr.;Jr.\r\n")
+        );
+
+        let plain = stashing("N:King;Martin;Luther;Dr.;", "\r\n");
+        let contact = MsgraphContact::from_vcard(&plain).unwrap();
+        assert_eq!(contact.generation, MsgraphField::Null);
+
+        let patch = MsgraphContact::update_from_vcard(&plain, &card).unwrap();
+        assert_eq!(
+            serde_json::to_value(&patch).unwrap(),
+            serde_json::json!({"generation": null})
+        );
+    }
+
+    #[test]
+    fn a_fax_or_a_pager_is_stashed_rather_than_filed_as_a_phone() {
+        let kept = [
+            "TEL;TYPE=fax:+331",
+            "TEL;TYPE=work,fax:+332",
+            "TEL;TYPE=\"home,fax\":+333",
+            "TEL;TYPE=PAGER:+334",
+            "TEL;WORK;FAX:+335",
+        ];
+        let filed = [
+            "TEL;TYPE=work:+336",
+            "TEL;TYPE=\"voice,home\":+337",
+            "TEL;CELL:+338",
+        ];
+        let card = stashing(
+            &[kept.join("\r\n"), filed.join("\r\n")].join("\r\n"),
+            "\r\n",
+        );
+
+        let contact = MsgraphContact::from_vcard(&card).unwrap();
+
+        assert_eq!(
+            contact.business_phones,
+            MsgraphField::Set(vec!["+336".into()])
+        );
+        assert_eq!(contact.home_phones, MsgraphField::Set(vec!["+337".into()]));
+        assert_eq!(contact.mobile_phone, MsgraphField::Set("+338".into()));
+        assert_eq!(stash_lines(&contact), kept);
+
+        let back = contact.to_vcard();
+        for line in kept {
+            assert!(back.contains(&format!("{line}\r\n")), "{back}");
         }
     }
 

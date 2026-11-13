@@ -50,7 +50,7 @@ impl MsgraphChecklistItemsList {
         debug!("prepare microsoft graph checklist items listing");
         trace!("list: {list_id:?}, task: {task_id:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let path = format!(
             "{user}/todo/lists/{}/tasks/{}/checklistItems",
             path_segment(list_id)?,

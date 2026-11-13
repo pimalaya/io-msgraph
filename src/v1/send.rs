@@ -36,13 +36,13 @@ pub const MSGRAPH_API_BASE: &str = "https://graph.microsoft.com/v1.0/";
 ///
 /// Graph accepts an explicit user id or principal name under `users/`
 /// but rejects `users/me`; only the bare `me` shortcut addresses the
-/// authenticated user.
-pub fn user_path(user_id: &str) -> String {
+/// authenticated user. An id [`path_segment`] refuses is refused here too.
+pub fn user_path(user_id: &str) -> Result<String, MsgraphSendError> {
     if user_id == "me" {
-        String::from("me")
-    } else {
-        format!("users/{}", encode_segment(user_id))
+        return Ok(String::from("me"));
     }
+
+    Ok(format!("users/{}", path_segment(user_id)?))
 }
 
 /// Percent-encodes `raw` as one URL path segment, such as a folder or
@@ -429,13 +429,20 @@ mod tests {
         assert_eq!(path_segment(id).unwrap(), id);
         assert_eq!(path_segment("A/B?c#d e%").unwrap(), "A%2FB%3Fc%23d%20e%25");
         assert_eq!(path_segment("Envoyés").unwrap(), "Envoy%C3%A9s");
-        assert_eq!(user_path("a b@example.org"), "users/a%20b@example.org");
+        assert_eq!(
+            user_path("a b@example.org").unwrap(),
+            "users/a%20b@example.org"
+        );
+        assert_eq!(user_path("me").unwrap(), "me");
     }
 
     #[test]
     fn a_path_segment_refuses_what_url_resolution_drops() {
         for raw in ["", ".", ".."] {
             let err = path_segment(raw).unwrap_err();
+            assert!(matches!(err, MsgraphSendError::InvalidRequest(_)));
+
+            let err = user_path(raw).unwrap_err();
             assert!(matches!(err, MsgraphSendError::InvalidRequest(_)));
         }
     }

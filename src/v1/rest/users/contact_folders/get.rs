@@ -32,7 +32,7 @@ impl MsgraphContactFolderGet {
         debug!("prepare microsoft graph contact folder retrieval");
         trace!("id: {id:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?
             .join(&format!("{user}/contactFolders/{}", path_segment(id)?))?;
         let send = MsgraphSend::get(auth, url);

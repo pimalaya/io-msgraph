@@ -42,7 +42,7 @@ impl MsgraphContactChildFoldersList {
         trace!("id: {id:?}");
         trace!("params: {params:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&format!(
             "{user}/contactFolders/{}/childFolders",
             path_segment(id)?

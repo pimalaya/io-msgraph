@@ -61,7 +61,7 @@ impl MsgraphContactFoldersList {
         debug!("prepare microsoft graph contact folders listing");
         trace!("params: {params:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/contactFolders"))?;
         url.query_pairs_mut().extend_pairs(to_query_pairs(params));
 

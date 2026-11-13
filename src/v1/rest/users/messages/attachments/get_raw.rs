@@ -47,7 +47,7 @@ impl MsgraphAttachmentGetRaw {
         trace!("message_id: {message_id:?}");
         trace!("attachment_id: {attachment_id:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!(
             "{user}/messages/{}/attachments/{}/$value",
             path_segment(message_id)?,

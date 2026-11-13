@@ -38,7 +38,7 @@ impl MsgraphTodoTaskCreate {
         trace!("list: {list_id:?}");
         trace!("task: {task:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let path = format!("{user}/todo/lists/{}/tasks", path_segment(list_id)?);
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;
         let send = MsgraphSend::post_json(auth, url, task)?;

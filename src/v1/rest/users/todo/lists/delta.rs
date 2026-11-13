@@ -65,7 +65,7 @@ impl MsgraphTodoListsDelta {
     pub fn new(auth: &HttpAuthBearer, user_id: &str) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph to do lists delta");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/todo/lists/delta"))?;
         let send = MsgraphSend::get(auth, url);
 

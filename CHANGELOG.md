@@ -13,9 +13,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added `MsgraphMessage::internet_message_headers`, the RFC 5322 header fields of a message as `MsgraphInternetMessageHeader` name and value pairs, filled when the request selects `internetMessageHeaders`. **Breaking** for a struct literal without `..Default::default()`.
 
   The order Graph returns is kept, repeated names too, and no value is interpreted.
+- Added `MsgraphContact::generation`, the name suffix of a contact, which the vCard projection reads from and writes to the suffixes of N. **Breaking** for a struct literal without `..Default::default()`.
 
 ### Changed
 
+- Changed `user_path` to return a `Result`, refusing an empty, `.` or `..` user id with `MsgraphSendError::InvalidRequest` as `path_segment` does. **Breaking.**
 - Changed `MsgraphMessage::categories` to a `MsgraphField<Vec<String>>`, so an update can clear the categories with `Set(vec![])` where an empty list used to be left out of the body. **Breaking.**
 - Changed `MsgraphMessageGet::new` and `MsgraphClientStd::message_get` to take a `$select` and an `$expand`, as the event get does. **Breaking.**
 
@@ -25,6 +27,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Fixed the event, task and contact projections cutting a folded line at its first fold through the stash, a UID over 71 octets included (requires `ical` or `vcard` feature).
 
   The stash now holds unfolded lines, and a stash stored folded reads back whole.
+- Fixed the UNTIL of an RRULE being sent as its UTC date, which moved the end of a series by one day away from UTC (requires `ical` feature).
+
+  The end date is the one the instant falls on in the zone of the series.
+- Fixed RRULEs Graph has no exact pattern for being approximated instead of refused (requires `ical` feature).
+
+  A BYMONTH or a BYMONTHDAY the pattern has no field for, a yearly rule by day or by month day without a BYMONTH, several numbered BYDAY elements, a numbered one beside a bare one or a BYSETPOS, and a weekday named twice answer `UnsupportedRecurrence`.
+- Fixed a VEVENT with neither a DTEND nor a DURATION being refused (requires `ical` feature).
+
+  It ends one day after a date start and at its start otherwise (RFC 5545 3.6.1). `MsgraphEventIcalError::NoEnd` now tells a DTEND or a DURATION that gives no end.
+- Fixed the vCard projection dropping the suffixes of N (requires `vcard` feature).
+- Fixed the vCard projection filing a fax or a pager number in a phone slot (requires `vcard` feature).
+
+  Such a TEL is stashed. Types are also read from a quoted TYPE list and from bare vCard 2.1 parameters.
+- Fixed `MsgraphContact::stashed_uid` cutting a UID at its first comma or semicolon (requires `vcard` feature).
 
 ### Security
 

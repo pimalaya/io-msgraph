@@ -39,7 +39,7 @@ impl MsgraphContactFolderCreate {
             return Err(err);
         }
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/contactFolders"))?;
         let send = MsgraphSend::post_json(auth, url, folder)?;
 

@@ -47,6 +47,9 @@ pub struct MsgraphContact {
     /// The title of the contact.
     #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
     pub title: MsgraphField<String>,
+    /// The name suffix of the contact (Jr., III).
+    #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
+    pub generation: MsgraphField<String>,
     /// How the contact is filed under in the folder listing.
     #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
     pub file_as: MsgraphField<String>,

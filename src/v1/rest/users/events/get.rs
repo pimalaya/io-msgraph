@@ -42,7 +42,7 @@ impl MsgraphEventGet {
         trace!("id: {id:?}");
         trace!("select: {select:?}, expand: {expand:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let mut url =
             Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/events/{}", path_segment(id)?))?;
 

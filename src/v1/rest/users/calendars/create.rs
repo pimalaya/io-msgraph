@@ -32,7 +32,7 @@ impl MsgraphCalendarCreate {
         debug!("prepare microsoft graph calendar creation");
         trace!("calendar: {calendar:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/calendars"))?;
         let send = MsgraphSend::post_json(auth, url, calendar)?;
 

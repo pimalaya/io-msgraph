@@ -79,7 +79,7 @@ impl MsgraphEventsList {
         trace!("calendar: {calendar:?}");
         trace!("params: {params:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let path = match calendar {
             Some(calendar) => format!("{user}/calendars/{}/events", path_segment(calendar)?),
             None => format!("{user}/events"),

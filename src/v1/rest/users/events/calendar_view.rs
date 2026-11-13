@@ -44,7 +44,7 @@ impl MsgraphCalendarView {
         debug!("prepare microsoft graph calendar view");
         trace!("calendar: {calendar:?}, start: {start}, end: {end}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let path = match calendar {
             Some(calendar) => format!("{user}/calendars/{}/calendarView", path_segment(calendar)?),
             None => format!("{user}/calendarView"),

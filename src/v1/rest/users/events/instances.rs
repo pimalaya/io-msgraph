@@ -44,7 +44,7 @@ impl MsgraphEventInstances {
         debug!("prepare microsoft graph event instances listing");
         trace!("id: {id:?}, start: {start}, end: {end}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let mut url = Url::parse(MSGRAPH_API_BASE)?
             .join(&format!("{user}/events/{}/instances", path_segment(id)?))?;
         url.query_pairs_mut()

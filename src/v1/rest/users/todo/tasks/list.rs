@@ -74,7 +74,7 @@ impl MsgraphTodoTasksList {
         trace!("list: {list_id:?}");
         trace!("params: {params:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let path = format!("{user}/todo/lists/{}/tasks", path_segment(list_id)?);
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;
         url.query_pairs_mut().extend_pairs(to_query_pairs(params));

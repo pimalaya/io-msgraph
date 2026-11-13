@@ -28,7 +28,7 @@ impl MsgraphMailFolderDelete {
         debug!("prepare microsoft graph mail folder deletion");
         trace!("id: {id:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?
             .join(&format!("{user}/mailFolders/{}", path_segment(id)?))?;
         let send = MsgraphSend::delete(auth, url);

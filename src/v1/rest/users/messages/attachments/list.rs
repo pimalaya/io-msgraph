@@ -48,7 +48,7 @@ impl MsgraphAttachmentsList {
         debug!("prepare microsoft graph attachments listing");
         trace!("message_id: {message_id:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!(
             "{user}/messages/{}/attachments",
             path_segment(message_id)?

@@ -235,6 +235,23 @@ fn rejects_empty_folder_name() {
 }
 
 #[test]
+fn rejects_a_user_id_url_resolution_drops() {
+    for user_id in ["", ".", ".."] {
+        let user = MsgraphUserGet::new(&auth(), user_id);
+        assert!(
+            matches!(user, Err(MsgraphSendError::InvalidRequest(_))),
+            "{user_id:?}"
+        );
+
+        let folder = MsgraphMailFolderDelete::new(&auth(), user_id, "AAA");
+        assert!(
+            matches!(folder, Err(MsgraphSendError::InvalidRequest(_))),
+            "{user_id:?}"
+        );
+    }
+}
+
+#[test]
 fn deletes_folder_issues_delete() {
     let mut coroutine = MsgraphMailFolderDelete::new(&auth(), "me", "AAA").unwrap();
     let (result, written) = run(&mut coroutine, &empty_response("HTTP/1.1 204 No Content"));

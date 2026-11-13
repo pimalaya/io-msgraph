@@ -106,7 +106,7 @@ impl MsgraphCoroutine for MsgraphMailSendMime {
 }
 
 fn mail_url(user_id: &str) -> Result<Url, MsgraphSendError> {
-    let user = user_path(user_id);
+    let user = user_path(user_id)?;
     let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/sendMail"))?;
     Ok(url)
 }

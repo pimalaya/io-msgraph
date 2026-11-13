@@ -62,7 +62,7 @@ impl MsgraphCalendarsList {
         debug!("prepare microsoft graph calendars listing");
         trace!("params: {params:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/calendars"))?;
         url.query_pairs_mut().extend_pairs(to_query_pairs(params));
 

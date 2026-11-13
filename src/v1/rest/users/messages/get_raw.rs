@@ -40,7 +40,7 @@ impl MsgraphMessageGetRaw {
         debug!("prepare microsoft graph message raw retrieval");
         trace!("id: {id:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?
             .join(&format!("{user}/messages/{}/$value", path_segment(id)?))?;
 

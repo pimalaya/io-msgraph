@@ -42,7 +42,7 @@ impl MsgraphContactGet {
         trace!("id: {id:?}");
         trace!("expand: {expand:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let mut url = Url::parse(MSGRAPH_API_BASE)?
             .join(&format!("{user}/contacts/{}", path_segment(id)?))?;
 

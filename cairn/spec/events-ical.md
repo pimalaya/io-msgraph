@@ -19,3 +19,12 @@ A stash value that holds lines in the folded shape of their source SHALL read as
 
 ### Requirement: A weekday that cannot be read is refused
 An RRULE whose BYDAY element is not an optional ordinal followed by a two-letter weekday, text outside ASCII included, SHALL be refused as an unsupported recurrence, whether it comes from a document or from a stash.
+
+### Requirement: An UNTIL ends the series on its date in the series zone
+An RRULE's UNTIL given as a UTC date-time SHALL be sent as the `endDate` it falls on in the zone of the series start, a Windows zone name read as its IANA counterpart, and one given as a date or as a local date-time SHALL be sent as its date. An `endDate` read from Graph and written again SHALL be the same date.
+
+### Requirement: A rule Graph would only approximate is refused
+An RRULE SHALL be refused as an unsupported recurrence when Graph's pattern would not repeat on the same days: a BYMONTH or a BYMONTHDAY on a kind with no field for it (daily, weekly, relative), a yearly BYMONTHDAY without a BYMONTH, a yearly BYDAY without a BYMONTH, more than one numbered BYDAY element, a numbered element beside a bare one or beside a BYSETPOS, and a weekday named twice. Every rule the projection writes SHALL read back as written.
+
+### Requirement: An event without an end takes the one its start implies
+A VEVENT with neither a DTEND nor a DURATION SHALL end one day after a date start and at its start for a date-time one (RFC 5545 3.6.1). A DTEND or a DURATION that cannot be read SHALL still be refused.

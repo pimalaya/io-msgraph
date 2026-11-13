@@ -63,7 +63,7 @@ impl MsgraphAttachmentCreate {
         trace!("name: {name:?}");
         trace!("content_type: {content_type:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!(
             "{user}/messages/{}/attachments",
             path_segment(message_id)?

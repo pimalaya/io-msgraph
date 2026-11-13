@@ -27,7 +27,7 @@ impl MsgraphUserGet {
         debug!("prepare microsoft graph user retrieval");
         trace!("user_id: {user_id:?}");
 
-        let url = Url::parse(MSGRAPH_API_BASE)?.join(&user_path(user_id))?;
+        let url = Url::parse(MSGRAPH_API_BASE)?.join(&user_path(user_id)?)?;
         let send = MsgraphSend::get(auth, url);
 
         Ok(Self { send })

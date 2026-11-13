@@ -32,7 +32,7 @@ impl MsgraphTodoListCreate {
         debug!("prepare microsoft graph to do list creation");
         trace!("list: {list:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/todo/lists"))?;
         let send = MsgraphSend::post_json(auth, url, list)?;
 

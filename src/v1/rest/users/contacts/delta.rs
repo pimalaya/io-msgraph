@@ -90,7 +90,7 @@ impl MsgraphContactsDelta {
         debug!("prepare microsoft graph contacts delta");
         trace!("folder: {folder:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let path = match folder {
             Some(folder) => format!(
                 "{user}/contactFolders/{}/contacts/delta",

@@ -28,7 +28,7 @@ impl MsgraphCalendarDelete {
         debug!("prepare microsoft graph calendar deletion");
         trace!("id: {id:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?
             .join(&format!("{user}/calendars/{}", path_segment(id)?))?;
         let send = MsgraphSend::delete(auth, url);

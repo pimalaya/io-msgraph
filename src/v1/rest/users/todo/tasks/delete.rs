@@ -34,7 +34,7 @@ impl MsgraphTodoTaskDelete {
         debug!("prepare microsoft graph to do task deletion");
         trace!("list: {list_id:?}, id: {id:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let path = format!(
             "{user}/todo/lists/{}/tasks/{}",
             path_segment(list_id)?,

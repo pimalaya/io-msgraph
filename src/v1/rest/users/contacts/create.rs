@@ -39,7 +39,7 @@ impl MsgraphContactCreate {
         trace!("folder: {folder:?}");
         trace!("contact: {contact:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let path = match folder {
             Some(folder) => format!("{user}/contactFolders/{}/contacts", path_segment(folder)?),
             None => format!("{user}/contacts"),

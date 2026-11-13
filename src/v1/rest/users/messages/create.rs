@@ -39,7 +39,7 @@ impl MsgraphMessageCreate {
         trace!("folder: {folder:?}");
         trace!("message: {message:?}");
 
-        let user = user_path(user_id);
+        let user = user_path(user_id)?;
         let path = match folder {
             Some(folder) => format!("{user}/mailFolders/{}/messages", path_segment(folder)?),
             None => format!("{user}/messages"),
