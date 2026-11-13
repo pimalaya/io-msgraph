@@ -10,10 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - Added `path_segment`, percent-encoding a value as one URL path segment.
 - Added `MsgraphMessagesListResponse::count`, the `@odata.count` a listing asked with `$count` carries.
+- Added `MsgraphMessage::internet_message_headers`, the RFC 5322 header fields of a message as `MsgraphInternetMessageHeader` name and value pairs, filled when the request selects `internetMessageHeaders`. **Breaking** for a struct literal without `..Default::default()`.
+
+  The order Graph returns is kept, repeated names too, and no value is interpreted.
 
 ### Changed
 
 - Changed `MsgraphMessage::categories` to a `MsgraphField<Vec<String>>`, so an update can clear the categories with `Set(vec![])` where an empty list used to be left out of the body. **Breaking.**
+- Changed `MsgraphMessageGet::new` and `MsgraphClientStd::message_get` to take a `$select` and an `$expand`, as the event get does. **Breaking.**
 
 ### Fixed
 

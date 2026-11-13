@@ -1054,12 +1054,15 @@ impl MsgraphClientStd {
         self.run(coroutine)
     }
 
-    /// Gets a message by id.
+    /// Gets the message `id`, selecting `select` and expanding `expand`
+    /// when given.
     pub fn message_get(
         &mut self,
         id: &str,
+        select: Option<&str>,
+        expand: Option<&str>,
     ) -> Result<MsgraphSendOutput<MsgraphMessage>, MsgraphClientStdError> {
-        let coroutine = MsgraphMessageGet::new(&self.auth, &self.user_id, id)?;
+        let coroutine = MsgraphMessageGet::new(&self.auth, &self.user_id, id, select, expand)?;
         self.run(coroutine)
     }
 

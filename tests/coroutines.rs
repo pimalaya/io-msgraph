@@ -34,6 +34,7 @@ use io_msgraph::v1::{
             },
             create_mime::MsgraphMessageCreateMime,
             delta::{MsgraphMessagesDelta, MsgraphMessagesDeltaParams},
+            get::MsgraphMessageGet,
             get_raw::MsgraphMessageGetRaw,
             list::MsgraphMessagesList,
             list::MsgraphMessagesListParams,
@@ -305,6 +306,65 @@ fn messages_list_expands_an_extended_property() {
     );
     assert_eq!(value[0].single_value_extended_properties[0].value, "48213");
     assert!(value[1].single_value_extended_properties.is_empty());
+}
+
+#[test]
+fn messages_list_selects_internet_message_headers() {
+    let body = r#"{
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('USER1')/mailFolders('inbox')/messages(internetMessageHeaders)",
+        "value": [
+            {
+                "@odata.etag": "W/\"CQAAABYAAAC4ofQHEIqCSbQPot83AFcbAAAnjjuZ\"",
+                "id": "MSG1",
+                "internetMessageHeaders": [
+                    { "name": "Received", "value": "from mx2.example.org by mx1.example.com; Thu, 6 Aug 2026 10:00:02 +0000" },
+                    { "name": "Received", "value": "from [192.0.2.1] by mx2.example.org; Thu, 6 Aug 2026 10:00:01 +0000" },
+                    { "name": "Subject", "value": "=?UTF-8?Q?caf=C3=A9?=" },
+                    { "name": "Message-ID", "value": "<1@example.org>" }
+                ]
+            },
+            {
+                "@odata.etag": "W/\"CQAAABYAAAC4ofQHEIqCSbQPot83AFcbAAAnjjuY\"",
+                "id": "MSG2"
+            }
+        ]
+    }"#;
+    let params = MsgraphMessagesListParams {
+        select: Some("id,internetMessageHeaders"),
+        ..Default::default()
+    };
+
+    let mut coroutine = MsgraphMessagesList::new(&auth(), "me", Some("inbox"), &params).unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let value = result.unwrap().response.value;
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.contains("%24select=id%2CinternetMessageHeaders"),
+        "got: {request}"
+    );
+
+    let fields: Vec<(&str, &str)> = value[0]
+        .internet_message_headers
+        .iter()
+        .map(|header| (header.name.as_str(), header.value.as_str()))
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            (
+                "Received",
+                "from mx2.example.org by mx1.example.com; Thu, 6 Aug 2026 10:00:02 +0000"
+            ),
+            (
+                "Received",
+                "from [192.0.2.1] by mx2.example.org; Thu, 6 Aug 2026 10:00:01 +0000"
+            ),
+            ("Subject", "=?UTF-8?Q?caf=C3=A9?="),
+            ("Message-ID", "<1@example.org>"),
+        ]
+    );
+    assert!(value[1].internet_message_headers.is_empty());
 }
 
 #[test]
@@ -580,6 +640,57 @@ fn move_posts_destination_id() {
     assert!(request.contains("/v1.0/me/messages/ID1/move"));
     assert!(
         request.contains("\"destinationId\":\"archive\""),
+        "got: {request}"
+    );
+}
+
+#[test]
+fn message_get_selects_and_expands_only_when_asked() {
+    let body = r#"{
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('USER1')/messages(internetMessageHeaders)/$entity",
+        "@odata.etag": "W/\"FwAAABYAAAC4ofQHEIqCSbQPot83AFcbAAAW/0tB\"",
+        "id": "MSG1",
+        "internetMessageHeaders": [
+            { "name": "MIME-Version", "value": "1.0" },
+            { "name": "Content-Type", "value": "multipart/report" }
+        ]
+    }"#;
+
+    let mut coroutine = MsgraphMessageGet::new(
+        &auth(),
+        "me",
+        "MSG1",
+        Some("internetMessageHeaders"),
+        Some("x"),
+    )
+    .unwrap();
+    let (result, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", body));
+    let message = result.unwrap().response;
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with(
+            "GET /v1.0/me/messages/MSG1?%24select=internetMessageHeaders&%24expand=x "
+        ),
+        "got: {request}"
+    );
+    assert_eq!(message.internet_message_headers.len(), 2);
+    assert_eq!(message.internet_message_headers[1].name, "Content-Type");
+    assert_eq!(
+        message.internet_message_headers[1].value,
+        "multipart/report"
+    );
+
+    let mut coroutine = MsgraphMessageGet::new(&auth(), "me", "MSG1", None, None).unwrap();
+    let (result, written) = run(
+        &mut coroutine,
+        &json_response("HTTP/1.1 200 OK", r#"{ "id": "MSG1" }"#),
+    );
+    assert!(result.is_ok());
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/messages/MSG1 "),
         "got: {request}"
     );
 }

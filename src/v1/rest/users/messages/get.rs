@@ -26,14 +26,33 @@ pub struct MsgraphMessageGet {
 }
 
 impl MsgraphMessageGet {
-    /// Gets the message `id`.
-    pub fn new(auth: &HttpAuthBearer, user_id: &str, id: &str) -> Result<Self, MsgraphSendError> {
+    /// Gets the message `id`, trimmed to the `$select`ed properties and
+    /// `$expand`ing the given navigation clause when either is passed.
+    ///
+    /// Internet message headers come back only selected, and extended
+    /// properties only expanded.
+    pub fn new(
+        auth: &HttpAuthBearer,
+        user_id: &str,
+        id: &str,
+        select: Option<&str>,
+        expand: Option<&str>,
+    ) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph message retrieval");
         trace!("id: {id:?}");
+        trace!("select: {select:?}, expand: {expand:?}");
 
         let user = user_path(user_id);
-        let url = Url::parse(MSGRAPH_API_BASE)?
+        let mut url = Url::parse(MSGRAPH_API_BASE)?
             .join(&format!("{user}/messages/{}", path_segment(id)?))?;
+
+        if let Some(select) = select {
+            url.query_pairs_mut().append_pair("$select", select);
+        }
+        if let Some(expand) = expand {
+            url.query_pairs_mut().append_pair("$expand", expand);
+        }
+
         let send = MsgraphSend::get(auth, url);
 
         Ok(Self { send })

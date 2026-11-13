@@ -954,7 +954,7 @@ fn messages(client: &mut MsgraphClientStd, folder_id: &str, name: &str, address:
     assert_eq!(message.subject.as_deref(), Some(subject.as_str()));
 
     let fetched = client
-        .message_get(&message.id)
+        .message_get(&message.id, None, None)
         .expect("message get")
         .response;
     assert_eq!(fetched.subject.as_deref(), Some(subject.as_str()));
@@ -1098,7 +1098,7 @@ fn errors_and_batch(client: &mut MsgraphClientStd, folder_id: &str, name: &str, 
         .message_delete(&message.id)
         .expect("message delete for the error path");
 
-    match client.message_get(&message.id) {
+    match client.message_get(&message.id, None, None) {
         Err(MsgraphClientStdError::Send(err)) => {
             assert_eq!(err.status(), Some(404), "a deleted message is gone: {err}");
             assert!(!err.is_retryable(), "a 404 is no transient failure");

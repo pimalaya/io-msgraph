@@ -80,6 +80,10 @@ pub struct MsgraphMessage {
     /// The RFC 5322 Message-ID header of the message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub internet_message_id: Option<String>,
+    /// The RFC 5322 header fields in the order Graph returns them,
+    /// repeated names kept, only when the request `$select`ed them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub internet_message_headers: Vec<MsgraphInternetMessageHeader>,
     /// The importance of the message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub importance: Option<MsgraphImportance>,
@@ -146,6 +150,22 @@ pub struct MsgraphFollowupFlag {
     /// The status of the follow-up flag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flag_status: Option<MsgraphFlagStatus>,
+}
+
+/// A header field of a message (`message.internetMessageHeaders`), its
+/// value as Graph returns it.
+///
+/// <https://learn.microsoft.com/en-us/graph/api/resources/internetmessageheader>
+#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct MsgraphInternetMessageHeader {
+    /// The name of the header field.
+    #[serde(default)]
+    pub name: String,
+    /// The value of the header field.
+    #[serde(default)]
+    pub value: String,
 }
 
 /// Format of a message body.
