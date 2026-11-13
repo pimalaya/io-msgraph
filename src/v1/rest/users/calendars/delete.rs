@@ -13,7 +13,7 @@ use crate::{
     msgraph_try,
     v1::send::{
         MSGRAPH_API_BASE, MsgraphNoResponse, MsgraphSend, MsgraphSendError, MsgraphSendOutput,
-        user_path,
+        path_segment, user_path,
     },
 };
 
@@ -29,7 +29,8 @@ impl MsgraphCalendarDelete {
         trace!("id: {id:?}");
 
         let user = user_path(user_id);
-        let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/calendars/{id}"))?;
+        let url = Url::parse(MSGRAPH_API_BASE)?
+            .join(&format!("{user}/calendars/{}", path_segment(id)?))?;
         let send = MsgraphSend::delete(auth, url);
 
         Ok(Self { send })

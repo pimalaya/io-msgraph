@@ -8,7 +8,7 @@ use alloc::{string::String, vec::Vec};
 
 use serde::{Deserialize, Serialize};
 
-use crate::v1::rest::users::contacts::MsgraphSingleValueExtendedProperty;
+use crate::v1::{field::MsgraphField, rest::users::contacts::MsgraphSingleValueExtendedProperty};
 
 pub mod attachments;
 pub mod copy;
@@ -87,8 +87,9 @@ pub struct MsgraphMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flag: Option<MsgraphFollowupFlag>,
     /// The categories associated with the message.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub categories: Vec<String>,
+    #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<Vec<String>>"))]
+    pub categories: MsgraphField<Vec<String>>,
     /// The identifier of the containing mail folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_folder_id: Option<String>,
@@ -182,4 +183,26 @@ pub enum MsgraphImportance {
     Normal,
     /// High importance.
     High,
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec::Vec;
+
+    use crate::v1::{field::MsgraphField, rest::users::messages::MsgraphMessage};
+
+    #[test]
+    fn an_update_can_clear_the_categories() {
+        let clear = MsgraphMessage {
+            categories: MsgraphField::Set(Vec::new()),
+            ..Default::default()
+        };
+        let keep = MsgraphMessage::default();
+
+        assert_eq!(
+            serde_json::to_string(&clear).unwrap(),
+            r#"{"categories":[]}"#
+        );
+        assert_eq!(serde_json::to_string(&keep).unwrap(), "{}");
+    }
 }

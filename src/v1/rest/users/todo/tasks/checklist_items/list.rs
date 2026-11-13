@@ -15,7 +15,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::todo::tasks::checklist_items::MsgraphChecklistItem,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -48,7 +51,11 @@ impl MsgraphChecklistItemsList {
         trace!("list: {list_id:?}, task: {task_id:?}");
 
         let user = user_path(user_id);
-        let path = format!("{user}/todo/lists/{list_id}/tasks/{task_id}/checklistItems");
+        let path = format!(
+            "{user}/todo/lists/{}/tasks/{}/checklistItems",
+            path_segment(list_id)?,
+            path_segment(task_id)?
+        );
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;
         let send = MsgraphSend::get(auth, url);
 

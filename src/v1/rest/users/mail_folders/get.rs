@@ -13,7 +13,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::mail_folders::MsgraphMailFolder,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -30,7 +33,8 @@ impl MsgraphMailFolderGet {
         trace!("id: {id:?}");
 
         let user = user_path(user_id);
-        let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/mailFolders/{id}"))?;
+        let url = Url::parse(MSGRAPH_API_BASE)?
+            .join(&format!("{user}/mailFolders/{}", path_segment(id)?))?;
         let send = MsgraphSend::get(auth, url);
 
         Ok(Self { send })

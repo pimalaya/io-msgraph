@@ -23,7 +23,10 @@ use url::Url;
 
 use crate::{
     coroutine::*,
-    v1::send::{MSGRAPH_API_BASE, MsgraphSendError, MsgraphSendOutput, parse_api_error, user_path},
+    v1::send::{
+        MSGRAPH_API_BASE, MsgraphSendError, MsgraphSendOutput, parse_api_error, path_segment,
+        user_path,
+    },
 };
 
 /// Gets the raw content of a Microsoft Graph attachment.
@@ -46,7 +49,9 @@ impl MsgraphAttachmentGetRaw {
 
         let user = user_path(user_id);
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!(
-            "{user}/messages/{message_id}/attachments/{attachment_id}/$value"
+            "{user}/messages/{}/attachments/{}/$value",
+            path_segment(message_id)?,
+            path_segment(attachment_id)?
         ))?;
 
         let request = HttpRequest::get(url.clone())

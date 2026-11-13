@@ -23,7 +23,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::{contacts::delta::MsgraphRemoved, todo::tasks::MsgraphTodoTask},
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -78,7 +81,7 @@ impl MsgraphTodoTasksDelta {
         trace!("list: {list_id:?}, select: {select:?}");
 
         let user = user_path(user_id);
-        let path = format!("{user}/todo/lists/{list_id}/tasks/delta");
+        let path = format!("{user}/todo/lists/{}/tasks/delta", path_segment(list_id)?);
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;
         if let Some(select) = select {
             url.query_pairs_mut().append_pair("$select", select);

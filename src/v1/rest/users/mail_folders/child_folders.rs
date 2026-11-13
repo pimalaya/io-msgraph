@@ -17,7 +17,10 @@ use crate::{
         rest::users::mail_folders::list::{
             MsgraphMailFoldersListParams, MsgraphMailFoldersListResponse,
         },
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -40,8 +43,10 @@ impl MsgraphMailChildFoldersList {
         trace!("params: {params:?}");
 
         let user = user_path(user_id);
-        let mut url =
-            Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/mailFolders/{id}/childFolders"))?;
+        let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&format!(
+            "{user}/mailFolders/{}/childFolders",
+            path_segment(id)?
+        ))?;
         url.query_pairs_mut().extend_pairs(to_query_pairs(params));
 
         let send = MsgraphSend::get(auth, url);

@@ -18,7 +18,10 @@ use crate::{
     v1::{
         query::to_query_pairs,
         rest::users::events::list::{MsgraphEventsListParams, MsgraphEventsListResponse},
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -43,7 +46,7 @@ impl MsgraphCalendarView {
 
         let user = user_path(user_id);
         let path = match calendar {
-            Some(calendar) => format!("{user}/calendars/{calendar}/calendarView"),
+            Some(calendar) => format!("{user}/calendars/{}/calendarView", path_segment(calendar)?),
             None => format!("{user}/calendarView"),
         };
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;

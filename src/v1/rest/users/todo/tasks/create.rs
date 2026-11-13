@@ -13,7 +13,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::todo::tasks::MsgraphTodoTask,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -36,7 +39,7 @@ impl MsgraphTodoTaskCreate {
         trace!("task: {task:?}");
 
         let user = user_path(user_id);
-        let path = format!("{user}/todo/lists/{list_id}/tasks");
+        let path = format!("{user}/todo/lists/{}/tasks", path_segment(list_id)?);
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;
         let send = MsgraphSend::post_json(auth, url, task)?;
 

@@ -20,7 +20,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::messages::attachments::MsgraphAttachment,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -61,8 +64,10 @@ impl MsgraphAttachmentCreate {
         trace!("content_type: {content_type:?}");
 
         let user = user_path(user_id);
-        let url = Url::parse(MSGRAPH_API_BASE)?
-            .join(&format!("{user}/messages/{message_id}/attachments"))?;
+        let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!(
+            "{user}/messages/{}/attachments",
+            path_segment(message_id)?
+        ))?;
 
         let mut content_bytes = Vec::new();
         Base64Codec::default().encode_vec(content, &mut content_bytes);

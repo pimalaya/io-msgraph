@@ -14,7 +14,7 @@ use crate::{
     msgraph_try,
     v1::send::{
         MSGRAPH_API_BASE, MsgraphNoResponse, MsgraphSend, MsgraphSendError, MsgraphSendOutput,
-        user_path,
+        path_segment, user_path,
     },
 };
 
@@ -38,7 +38,9 @@ impl MsgraphAttachmentDelete {
 
         let user = user_path(user_id);
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!(
-            "{user}/messages/{message_id}/attachments/{attachment_id}"
+            "{user}/messages/{}/attachments/{}",
+            path_segment(message_id)?,
+            path_segment(attachment_id)?
         ))?;
         let send = MsgraphSend::delete(auth, url);
 

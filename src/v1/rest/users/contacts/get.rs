@@ -13,7 +13,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::contacts::MsgraphContact,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -40,7 +43,8 @@ impl MsgraphContactGet {
         trace!("expand: {expand:?}");
 
         let user = user_path(user_id);
-        let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/contacts/{id}"))?;
+        let mut url = Url::parse(MSGRAPH_API_BASE)?
+            .join(&format!("{user}/contacts/{}", path_segment(id)?))?;
 
         if let Some(expand) = expand {
             url.query_pairs_mut().append_pair("$expand", expand);

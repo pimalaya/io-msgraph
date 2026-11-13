@@ -41,8 +41,44 @@ pub fn user_path(user_id: &str) -> String {
     if user_id == "me" {
         String::from("me")
     } else {
-        format!("users/{user_id}")
+        format!("users/{}", encode_segment(user_id))
     }
+}
+
+/// Percent-encodes `raw` as one URL path segment, such as a folder or
+/// message id.
+///
+/// Every byte outside the RFC 3986 `pchar` set is encoded, so a `/`, `?`
+/// or `#` stays inside the segment rather than naming another resource.
+/// An empty, `.` or `..` segment is refused: URL resolution would drop
+/// it or climb a level, whether encoded or not.
+pub fn path_segment(raw: &str) -> Result<String, MsgraphSendError> {
+    if matches!(raw, "" | "." | "..") {
+        let reason = format!("`{raw}` is not a valid path segment");
+        return Err(MsgraphSendError::InvalidRequest(reason));
+    }
+
+    Ok(encode_segment(raw))
+}
+
+fn encode_segment(raw: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+
+    let mut encoded = String::with_capacity(raw.len());
+
+    for &byte in raw.as_bytes() {
+        let pchar = byte.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@".contains(&byte);
+
+        if pchar {
+            encoded.push(byte as char);
+        } else {
+            encoded.push('%');
+            encoded.push(HEX[usize::from(byte >> 4)] as char);
+            encoded.push(HEX[usize::from(byte & 0xF)] as char);
+        }
+    }
+
+    encoded
 }
 
 /// Marker for endpoints that return an empty body (DELETE, sendMail,
@@ -380,5 +416,27 @@ pub fn parse_api_error(http_status: u16, body: &[u8]) -> (u16, String, String) {
         )
     } else {
         (http_status, String::from("unknown"), message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::v1::send::{MsgraphSendError, path_segment, user_path};
+
+    #[test]
+    fn a_path_segment_keeps_a_graph_id_and_encodes_separators() {
+        let id = "AAMkAGI2T-_x=";
+        assert_eq!(path_segment(id).unwrap(), id);
+        assert_eq!(path_segment("A/B?c#d e%").unwrap(), "A%2FB%3Fc%23d%20e%25");
+        assert_eq!(path_segment("Envoyés").unwrap(), "Envoy%C3%A9s");
+        assert_eq!(user_path("a b@example.org"), "users/a%20b@example.org");
+    }
+
+    #[test]
+    fn a_path_segment_refuses_what_url_resolution_drops() {
+        for raw in ["", ".", ".."] {
+            let err = path_segment(raw).unwrap_err();
+            assert!(matches!(err, MsgraphSendError::InvalidRequest(_)));
+        }
     }
 }

@@ -13,7 +13,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::events::MsgraphEvent,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -40,7 +43,8 @@ impl MsgraphEventGet {
         trace!("select: {select:?}, expand: {expand:?}");
 
         let user = user_path(user_id);
-        let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/events/{id}"))?;
+        let mut url =
+            Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/events/{}", path_segment(id)?))?;
 
         if let Some(select) = select {
             url.query_pairs_mut().append_pair("$select", select);

@@ -14,7 +14,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::events::MsgraphEvent,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -38,7 +41,7 @@ impl MsgraphEventCreate {
 
         let user = user_path(user_id);
         let path = match calendar {
-            Some(calendar) => format!("{user}/calendars/{calendar}/events"),
+            Some(calendar) => format!("{user}/calendars/{}/events", path_segment(calendar)?),
             None => format!("{user}/events"),
         };
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;

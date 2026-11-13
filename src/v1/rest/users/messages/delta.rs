@@ -31,7 +31,10 @@ use crate::{
     v1::{
         query::to_query_pairs,
         rest::users::{contacts::delta::MsgraphRemoved, messages::MsgraphMessage},
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -131,7 +134,10 @@ impl MsgraphMessagesDelta {
 
         let user = user_path(user_id);
         let path = match folder {
-            Some(folder) => format!("{user}/mailFolders/{folder}/messages/delta"),
+            Some(folder) => format!(
+                "{user}/mailFolders/{}/messages/delta",
+                path_segment(folder)?
+            ),
             None => format!("{user}/messages/delta"),
         };
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;

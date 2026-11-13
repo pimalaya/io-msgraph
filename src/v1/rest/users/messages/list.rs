@@ -16,7 +16,10 @@ use crate::{
     v1::{
         query::to_query_pairs,
         rest::users::messages::MsgraphMessage,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -29,6 +32,14 @@ pub struct MsgraphMessagesListResponse {
     /// The URL of the next page, when one exists.
     #[serde(default, rename = "@odata.nextLink")]
     pub next_link: Option<String>,
+    /// The number of messages matching the query, when `$count` asked
+    /// for it.
+    #[serde(
+        default,
+        rename = "@odata.count",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub count: Option<u64>,
 }
 
 /// OData query parameters for listing messages.
@@ -82,7 +93,7 @@ impl MsgraphMessagesList {
 
         let user = user_path(user_id);
         let path = match folder {
-            Some(folder) => format!("{user}/mailFolders/{folder}/messages"),
+            Some(folder) => format!("{user}/mailFolders/{}/messages", path_segment(folder)?),
             None => format!("{user}/messages"),
         };
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;
@@ -113,5 +124,17 @@ impl MsgraphCoroutine for MsgraphMessagesList {
         debug!("messages listed");
         trace!("out: {out:?}");
         MsgraphCoroutineState::Complete(Ok(out))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::v1::rest::users::messages::list::MsgraphMessagesListResponse;
+
+    #[test]
+    fn a_counted_page_carries_its_count() {
+        let body = r#"{"@odata.count":3,"value":[]}"#;
+        let page: MsgraphMessagesListResponse = serde_json::from_str(body).unwrap();
+        assert_eq!(page.count, Some(3));
     }
 }

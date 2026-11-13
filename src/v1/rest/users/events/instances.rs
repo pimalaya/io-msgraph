@@ -18,7 +18,10 @@ use crate::{
     v1::{
         query::to_query_pairs,
         rest::users::events::list::{MsgraphEventsListParams, MsgraphEventsListResponse},
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -42,8 +45,8 @@ impl MsgraphEventInstances {
         trace!("id: {id:?}, start: {start}, end: {end}");
 
         let user = user_path(user_id);
-        let mut url =
-            Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/events/{id}/instances"))?;
+        let mut url = Url::parse(MSGRAPH_API_BASE)?
+            .join(&format!("{user}/events/{}/instances", path_segment(id)?))?;
         url.query_pairs_mut()
             .append_pair("startDateTime", start)
             .append_pair("endDateTime", end)

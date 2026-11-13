@@ -13,7 +13,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::events::MsgraphEvent,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -35,7 +38,8 @@ impl MsgraphEventUpdate {
         trace!("event: {event:?}");
 
         let user = user_path(user_id);
-        let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/events/{id}"))?;
+        let url =
+            Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/events/{}", path_segment(id)?))?;
         let send = MsgraphSend::patch_json(auth, url, event)?;
 
         Ok(Self { send })

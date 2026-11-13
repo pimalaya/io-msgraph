@@ -23,7 +23,10 @@ use url::Url;
 
 use crate::{
     coroutine::*,
-    v1::send::{MSGRAPH_API_BASE, MsgraphSendError, MsgraphSendOutput, parse_api_error, user_path},
+    v1::send::{
+        MSGRAPH_API_BASE, MsgraphSendError, MsgraphSendOutput, parse_api_error, path_segment,
+        user_path,
+    },
 };
 
 /// Gets the raw RFC 5322 MIME content of a Microsoft Graph message.
@@ -38,7 +41,8 @@ impl MsgraphMessageGetRaw {
         trace!("id: {id:?}");
 
         let user = user_path(user_id);
-        let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/messages/{id}/$value"))?;
+        let url = Url::parse(MSGRAPH_API_BASE)?
+            .join(&format!("{user}/messages/{}/$value", path_segment(id)?))?;
 
         let request = HttpRequest::get(url.clone())
             .header("Authorization", auth.to_authorization())

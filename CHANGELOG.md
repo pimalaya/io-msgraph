@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added `path_segment`, percent-encoding a value as one URL path segment.
+- Added `MsgraphMessagesListResponse::count`, the `@odata.count` a listing asked with `$count` carries.
+
+### Changed
+
+- Changed `MsgraphMessage::categories` to a `MsgraphField<Vec<String>>`, so an update can clear the categories with `Set(vec![])` where an empty list used to be left out of the body. **Breaking.**
+
+### Fixed
+
+- Fixed ids holding `/`, `?`, `#` or other bytes outside the RFC 3986 path segment set being spliced raw into the request path, naming another resource: every coroutine now percent-encodes its ids, the user id of `user_path` included, and refuses an empty, `.` or `..` id with `MsgraphSendError::InvalidRequest`.
+
 ## [0.7.1] - 2026-11-11
 
 ### Added

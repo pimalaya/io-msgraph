@@ -14,7 +14,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::messages::MsgraphMessage,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -38,7 +41,7 @@ impl MsgraphMessageCreate {
 
         let user = user_path(user_id);
         let path = match folder {
-            Some(folder) => format!("{user}/mailFolders/{folder}/messages"),
+            Some(folder) => format!("{user}/mailFolders/{}/messages", path_segment(folder)?),
             None => format!("{user}/messages"),
         };
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;

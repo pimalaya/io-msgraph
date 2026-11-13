@@ -13,7 +13,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::todo::lists::MsgraphTodoList,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -35,7 +38,8 @@ impl MsgraphTodoListUpdate {
         trace!("list: {list:?}");
 
         let user = user_path(user_id);
-        let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/todo/lists/{id}"))?;
+        let url = Url::parse(MSGRAPH_API_BASE)?
+            .join(&format!("{user}/todo/lists/{}", path_segment(id)?))?;
         let send = MsgraphSend::patch_json(auth, url, list)?;
 
         Ok(Self { send })

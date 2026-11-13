@@ -15,7 +15,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::messages::attachments::MsgraphAttachment,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -46,8 +49,10 @@ impl MsgraphAttachmentsList {
         trace!("message_id: {message_id:?}");
 
         let user = user_path(user_id);
-        let url = Url::parse(MSGRAPH_API_BASE)?
-            .join(&format!("{user}/messages/{message_id}/attachments"))?;
+        let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!(
+            "{user}/messages/{}/attachments",
+            path_segment(message_id)?
+        ))?;
         let send = MsgraphSend::get(auth, url);
 
         Ok(Self { send })

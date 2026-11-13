@@ -14,7 +14,7 @@ use crate::{
     msgraph_try,
     v1::send::{
         MSGRAPH_API_BASE, MsgraphNoResponse, MsgraphSend, MsgraphSendError, MsgraphSendOutput,
-        user_path,
+        path_segment, user_path,
     },
 };
 
@@ -30,7 +30,8 @@ impl MsgraphMessageSend {
         trace!("id: {id:?}");
 
         let user = user_path(user_id);
-        let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!("{user}/messages/{id}/send"))?;
+        let url = Url::parse(MSGRAPH_API_BASE)?
+            .join(&format!("{user}/messages/{}/send", path_segment(id)?))?;
         let send = MsgraphSend::with_method(auth, "POST", url, None, Vec::new());
 
         Ok(Self { send })

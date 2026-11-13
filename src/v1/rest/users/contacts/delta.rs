@@ -21,7 +21,10 @@ use crate::{
     msgraph_try,
     v1::{
         rest::users::contacts::MsgraphContact,
-        send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
+        send::{
+            MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
+            user_path,
+        },
     },
 };
 
@@ -89,7 +92,10 @@ impl MsgraphContactsDelta {
 
         let user = user_path(user_id);
         let path = match folder {
-            Some(folder) => format!("{user}/contactFolders/{folder}/contacts/delta"),
+            Some(folder) => format!(
+                "{user}/contactFolders/{}/contacts/delta",
+                path_segment(folder)?
+            ),
             None => format!("{user}/contacts/delta"),
         };
         let mut url = Url::parse(MSGRAPH_API_BASE)?.join(&path)?;
