@@ -9,7 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 
 - Added `path_segment`, percent-encoding a value as one URL path segment.
-- Added `MsgraphMessagesListResponse::count`, the `@odata.count` a listing asked with `$count` carries.
+- Added `MsgraphPage`, the one page every listing and delta round answers: its items, the next link, the delta link and the `@odata.count` a listing asked with `$count` carries.
+- Added I/O-free `MsgraphPageGet` coroutine, getting the page a next or a delta link names.
+
+  It gives the listings that had no `from_link` a way to follow their pages.
+- Added `MsgraphClientStd::page_get`.
+- Added `MsgraphApiError`, the API error of a non-2xx answer: status, code, message, method, `retry_after`, `www_authenticate`, `request_id` and `keep_alive`.
+- Added `MsgraphSendError::api`, `MsgraphSendError::retry_after` and `MsgraphSendError::is_throttled`.
+- Added `MsgraphSendOutput::headers`, the headers of a 2xx answer. **Breaking** for a struct literal.
+- Added `MSGRAPH_ATTACHMENT_MAX_LEN`, the longest content one attachment create request takes.
 - Added `MsgraphMessage::internet_message_headers`, the RFC 5322 header fields of a message as `MsgraphInternetMessageHeader` name and value pairs, filled when the request selects `internetMessageHeaders`. **Breaking** for a struct literal without `..Default::default()`.
 
   The order Graph returns is kept, repeated names too, and no value is interpreted.
@@ -18,6 +26,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Changed
 
 - Changed `user_path` to return a `Result`, refusing an empty, `.` or `..` user id with `MsgraphSendError::InvalidRequest` as `path_segment` does. **Breaking.**
+- Changed `MsgraphSendError::Api` to hold a boxed `MsgraphApiError` in place of its three fields. **Breaking.**
+- Changed `MsgraphSendError::is_retryable` to look at the method: a 429 is retryable whatever it is, a 500, 502, 503 or 504 for a GET, HEAD, PUT or DELETE only.
+
+  A POST or a PATCH answered by a 5xx may have been applied.
+- Changed the fifteen `*ListResponse` and `*DeltaResponse` types to aliases of `MsgraphPage`. **Breaking** for a struct literal or an exhaustive pattern.
+
+  A page without a delta link no longer serialises `@odata.deltaLink` as `null`.
+- Changed `MsgraphMessage::to_recipients`, `cc_recipients`, `bcc_recipients` and `reply_to` to `MsgraphField<Vec<MsgraphRecipient>>`, so an update can clear a list with `Set(vec![])`. **Breaking.**
+- Changed `MsgraphAttachmentCreate::new` to refuse a content over `MSGRAPH_ATTACHMENT_MAX_LEN` with `MsgraphSendError::InvalidRequest`.
 - Changed `MsgraphMessage::categories` to a `MsgraphField<Vec<String>>`, so an update can clear the categories with `Set(vec![])` where an empty list used to be left out of the body. **Breaking.**
 - Changed `MsgraphMessageGet::new` and `MsgraphClientStd::message_get` to take a `$select` and an `$expand`, as the event get does. **Breaking.**
 
@@ -41,9 +58,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
   Such a TEL is stashed. Types are also read from a quoted TYPE list and from bare vCard 2.1 parameters.
 - Fixed `MsgraphContact::stashed_uid` cutting a UID at its first comma or semicolon (requires `vcard` feature).
+- Fixed the DESCRIPTION of an HTML body carrying its style and script text, gluing its paragraphs and reading `&amp;lt;` as `<` (requires `ical` feature).
+
+  Numeric character references, `&quot;` and `&apos;` are read too.
 
 ### Security
 
+- Fixed every `from_link` constructor building an authorized request for whatever URL it was given.
+
+  A link off the origin of `MSGRAPH_API_BASE` is refused with `MsgraphSendError::InvalidRequest`, as `MsgraphPageGet` refuses it.
 - Fixed the event and task projections panicking on an RRULE whose BYDAY element holds a multi-byte character (requires `ical` feature).
 
   Such a rule is refused as an unsupported recurrence.

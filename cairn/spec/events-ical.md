@@ -28,3 +28,6 @@ An RRULE SHALL be refused as an unsupported recurrence when Graph's pattern woul
 
 ### Requirement: An event without an end takes the one its start implies
 A VEVENT with neither a DTEND nor a DURATION SHALL end one day after a date start and at its start for a date-time one (RFC 5545 3.6.1). A DTEND or a DURATION that cannot be read SHALL still be refused.
+
+### Requirement: An HTML body reads as the text it shows
+The text of an HTML body SHALL leave out what a head, a style, a script and a comment hold, SHALL break the line at a `br` and at the end of a `p` or a `div`, and SHALL read character references in one pass: the named `amp`, `lt`, `gt`, `quot`, `apos` and `nbsp`, and the numeric ones, a no-break space reading as a space.

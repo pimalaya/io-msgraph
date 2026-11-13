@@ -1602,24 +1602,112 @@ pub(crate) fn body_text(body: &MsgraphField<MsgraphItemBody>) -> String {
     }
 }
 
-/// The text of an HTML body without its markup, for DESCRIPTION.
+/// The text of an HTML body without its markup, for DESCRIPTION: what a
+/// head, a style or a script holds is left out, and a `br` or the end of
+/// a `p` or a `div` breaks the line.
 pub(crate) fn strip_html(html: &str) -> String {
     let mut text = String::with_capacity(html.len());
-    let mut in_tag = false;
-    for character in html.chars() {
-        match character {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => text.push(character),
-            _ => {}
+    let mut rest = html;
+    let mut skipped: Option<&str> = None;
+
+    while let Some(open) = rest.find('<') {
+        if skipped.is_none() {
+            push_unescaped(&mut text, &rest[..open]);
+        }
+        rest = &rest[open..];
+
+        let (tag, after) = match rest.strip_prefix("<!--") {
+            Some(comment) => ("", comment.split_once("-->").unwrap_or_default().1),
+            None => rest[1..].split_once('>').unwrap_or_default(),
+        };
+        rest = after;
+
+        let closing = tag.starts_with('/');
+        let name = tag.trim_start_matches('/');
+        let name = name
+            .split(|character: char| !character.is_ascii_alphanumeric())
+            .next()
+            .unwrap_or_default();
+
+        match skipped {
+            Some(element) if closing && name.eq_ignore_ascii_case(element) => skipped = None,
+            Some(_) => {}
+            None if closing => {
+                if name.eq_ignore_ascii_case("p") || name.eq_ignore_ascii_case("div") {
+                    text.push('\n');
+                    rest = after_break(rest);
+                }
+            }
+            None if name.eq_ignore_ascii_case("br") => {
+                text.push('\n');
+                rest = after_break(rest);
+            }
+            None => {
+                skipped = ["head", "style", "script"]
+                    .into_iter()
+                    .find(|element| name.eq_ignore_ascii_case(element));
+            }
         }
     }
-    text.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .trim()
-        .to_owned()
+
+    if skipped.is_none() {
+        push_unescaped(&mut text, rest);
+    }
+
+    text.trim().to_owned()
+}
+
+/// `html` past the line break its source put after a tag that breaks the
+/// line itself.
+fn after_break(html: &str) -> &str {
+    let html = html.strip_prefix('\r').unwrap_or(html);
+    html.strip_prefix('\n').unwrap_or(html)
+}
+
+/// Appends HTML text to `text`, its character references read in one pass.
+fn push_unescaped(text: &mut String, mut html: &str) {
+    while let Some(at) = html.find('&') {
+        text.push_str(&html[..at]);
+        html = &html[at + 1..];
+
+        // NOTE: the longest reference read is `#x10FFFF`.
+        let end = html.bytes().take(9).position(|byte| byte == b';');
+        let reference = end.and_then(|end| {
+            let (name, after) = (&html[..end], &html[end + 1..]);
+            let character = match name {
+                "amp" => '&',
+                "lt" => '<',
+                "gt" => '>',
+                "quot" => '"',
+                "apos" => '\'',
+                "nbsp" => '\u{a0}',
+                _ => {
+                    let number = name.strip_prefix('#')?;
+                    let code = match number.strip_prefix(['x', 'X']) {
+                        Some(hex) => u32::from_str_radix(hex, 16).ok()?,
+                        None => number.parse().ok()?,
+                    };
+                    char::from_u32(code)?
+                }
+            };
+            Some((character, after))
+        });
+
+        match reference {
+            // NOTE: a no-break space reads as a space, as it shows.
+            Some(('\u{a0}', after)) => {
+                text.push(' ');
+                html = after;
+            }
+            Some((character, after)) => {
+                text.push(character);
+                html = after;
+            }
+            None => text.push('&'),
+        }
+    }
+
+    text.push_str(html);
 }
 
 /// Whether two texts say the same once their whitespace is collapsed, so
@@ -2834,6 +2922,30 @@ mod tests {
         let ical = event.to_ical();
 
         assert!(ical.contains("DTSTART;VALUE=DATE:20300110\r\n"), "{ical}");
+    }
+
+    #[test]
+    fn an_html_body_reads_as_the_text_it_shows() {
+        let styled = "<html><head><title>t</title><style>p {margin:0}</style></head>\
+            <body><script>var a = 1 > 0;</script><p>Hi</p><p>there</p></body></html>";
+        assert_eq!(strip_html(styled), "Hi\nthere");
+
+        assert_eq!(
+            strip_html("<div>line one<br>\r\nline two<BR/>line three</div>"),
+            "line one\nline two\nline three"
+        );
+        assert_eq!(strip_html("a<!-- b > c -->d"), "ad");
+
+        // NOTE: one pass, so the text `&lt;` does not turn into a `<`.
+        assert_eq!(strip_html("&amp;lt; &amp;amp; &lt;b&gt;"), "&lt; &amp; <b>");
+        assert_eq!(
+            strip_html("&quot;caf&#233;&#x20AC;&apos; a&nbsp;b&#160;c"),
+            "\"caf\u{e9}\u{20ac}' a b c"
+        );
+        assert_eq!(
+            strip_html("R&D & co; &bogus; &#xD800; &"),
+            "R&D & co; &bogus; &#xD800; &"
+        );
     }
 
     /// A read whose text body Exchange turned into HTML, as it always does.

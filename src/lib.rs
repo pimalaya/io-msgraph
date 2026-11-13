@@ -49,10 +49,14 @@
 //! coroutine is a thin wrapper around one shared primitive,
 //! [`v1::send::MsgraphSend`]: it builds the authorized request (bearer
 //! token, JSON in and out) and parses either the 2xx body or Graph's
-//! error envelope into [`v1::send::MsgraphSendError`]. Redirects are
-//! never followed. The terminal [`v1::send::MsgraphSendOutput`] carries
-//! the parsed response plus a keep-alive flag so pumps can reuse the
-//! connection across the many small requests a Graph session makes.
+//! error envelope into [`v1::send::MsgraphSendError`], whose
+//! [`v1::send::MsgraphApiError`] keeps what the answer asks of the
+//! caller: the delay of a throttled request, the claims challenge of a
+//! 401, the request id and whether the connection survived. Redirects
+//! are never followed. The terminal [`v1::send::MsgraphSendOutput`]
+//! carries the parsed response, its headers and a keep-alive flag so
+//! pumps can reuse the connection across the many small requests a Graph
+//! session makes.
 //! Empty 2xx bodies (DELETE, sendMail, send draft) deserialize into the
 //! [`v1::send::MsgraphNoResponse`] unit marker. The two `$value`
 //! endpoints (raw message MIME and raw attachment content) return bytes
@@ -90,12 +94,16 @@
 //!
 //! Domain types mirror the Graph schema. Full-resource bodies double as
 //! create and update bodies thanks to `skip_serializing_if` on every
-//! optional field; contact fields use the [`v1::field::MsgraphField`]
-//! tri-state to distinguish a field left out of a PATCH body from one
-//! explicitly cleared. List operations take borrowed `*Params` structs
-//! whose fields rename to the OData system query options (`$top`,
-//! `$select`, `$filter` among others), flattened into query pairs by
-//! [`v1::query::to_query_pairs`], a tiny no_std serde serializer.
+//! optional field; contact fields, and the recipients and categories of
+//! a message, use the [`v1::field::MsgraphField`] tri-state to
+//! distinguish a field left out of a PATCH body from one explicitly
+//! cleared. List operations take borrowed `*Params` structs whose fields
+//! rename to the OData system query options (`$top`, `$select`,
+//! `$filter` among others), flattened into query pairs by
+//! [`v1::query::to_query_pairs`], a tiny no_std serde serializer. Every
+//! listing and delta round answers a [`v1::page::MsgraphPage`], and
+//! [`v1::page::MsgraphPageGet`] follows the link it carries, which has
+//! to stay on the Graph origin.
 //!
 //! ## Authentication
 //!

@@ -3,33 +3,26 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/user-list-contactfolders>
 
-use alloc::{format, string::String, vec::Vec};
+use alloc::format;
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use url::Url;
 
 use crate::{
     coroutine::*,
     msgraph_try,
     v1::{
+        page::MsgraphPage,
         query::to_query_pairs,
         rest::users::contact_folders::MsgraphContactFolder,
         send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
     },
 };
 
-/// One page of contact folders (`value` plus the OData paging link).
-#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
-pub struct MsgraphContactFoldersListResponse {
-    /// The contact folders of the page.
-    #[serde(default)]
-    pub value: Vec<MsgraphContactFolder>,
-    /// The URL of the next page, when one exists.
-    #[serde(default, rename = "@odata.nextLink")]
-    pub next_link: Option<String>,
-}
+/// One page of contact folders.
+pub type MsgraphContactFoldersListResponse = MsgraphPage<MsgraphContactFolder>;
 
 /// OData query parameters for listing contact folders.
 #[derive(Debug, Clone, Default, Serialize, Eq, PartialEq)]

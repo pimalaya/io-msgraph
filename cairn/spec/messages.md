@@ -13,3 +13,9 @@ A message SHALL carry the `internetMessageHeaders` Graph returns as name and val
 
 ### Requirement: The caller selects what a message read returns
 A listing, a delta round and a get SHALL send the `$select` and the `$expand` the caller passes and none of their own, so a property Graph returns only selected or expanded (the Internet header fields, the extended properties) is asked for by naming it there.
+
+### Requirement: An update can clear the recipients
+The To, Cc, Bcc and Reply-To lists of a message SHALL be tri-state: left out of a body when unset, so an update keeps what Graph holds, and sent as an empty list when set empty, so an update clears them.
+
+### Requirement: An attachment over what one request takes is refused
+An attachment create whose content is over 3 MiB SHALL be refused with `InvalidRequest` before anything is sent, Graph taking a larger file through an upload session the crate does not model.

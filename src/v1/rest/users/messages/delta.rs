@@ -18,7 +18,7 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/message-delta>
 
-use alloc::{format, string::String, vec::Vec};
+use alloc::format;
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
@@ -29,6 +29,7 @@ use crate::{
     coroutine::*,
     msgraph_try,
     v1::{
+        page::{MsgraphPage, link_url},
         query::to_query_pairs,
         rest::users::{contacts::delta::MsgraphRemoved, messages::MsgraphMessage},
         send::{
@@ -42,18 +43,7 @@ use crate::{
 ///
 /// More pages follow through `next_link`; the round ends when
 /// `delta_link` arrives (the token of the next round).
-#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
-pub struct MsgraphMessagesDeltaResponse {
-    /// The changed messages of the page.
-    #[serde(default)]
-    pub value: Vec<MsgraphMessageDelta>,
-    /// The URL of the next page of the round, when one exists.
-    #[serde(default, rename = "@odata.nextLink")]
-    pub next_link: Option<String>,
-    /// The URL closing the round, carrying the next round's token.
-    #[serde(default, rename = "@odata.deltaLink")]
-    pub delta_link: Option<String>,
-}
+pub type MsgraphMessagesDeltaResponse = MsgraphPage<MsgraphMessageDelta>;
 
 /// One message row of a delta page: the message (only its id when the
 /// row is a removal), plus the `@removed` marker.
@@ -155,12 +145,13 @@ impl MsgraphMessagesDelta {
     /// round from a saved `@odata.deltaLink`.
     ///
     /// The link already carries the server-issued token, so it is sent
-    /// as-is through a plain GET.
+    /// as-is through a plain GET. A link off the Microsoft Graph origin
+    /// is refused.
     pub fn from_link(auth: &HttpAuthBearer, link: &str) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph messages delta from link");
         trace!("link: {link:?}");
 
-        let url = Url::parse(link)?;
+        let url = link_url(link)?;
         let send = MsgraphSend::get(auth, url);
 
         Ok(Self { send })

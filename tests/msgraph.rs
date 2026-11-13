@@ -944,7 +944,7 @@ fn messages(client: &mut MsgraphClientStd, folder_id: &str, name: &str, address:
             content_type: Some(MsgraphBodyType::Text),
             content: Some(String::from("hello from io-msgraph")),
         }),
-        to_recipients: vec![recipient(address)],
+        to_recipients: MsgraphField::Set(vec![recipient(address)]),
         ..Default::default()
     };
     let message = client
@@ -1150,7 +1150,7 @@ fn send(client: &mut MsgraphClientStd, address: &str, subject: &str) {
             None,
             &MsgraphMessage {
                 subject: Some(String::from(subject)),
-                to_recipients: vec![recipient(address)],
+                to_recipients: MsgraphField::Set(vec![recipient(address)]),
                 ..Default::default()
             },
         )
@@ -1166,7 +1166,7 @@ fn send(client: &mut MsgraphClientStd, address: &str, subject: &str) {
                     content_type: Some(MsgraphBodyType::Text),
                     content: Some(String::from("sent by io-msgraph as JSON")),
                 }),
-                to_recipients: vec![recipient(address)],
+                to_recipients: MsgraphField::Set(vec![recipient(address)]),
                 ..Default::default()
             },
             true,

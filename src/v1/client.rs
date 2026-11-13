@@ -35,6 +35,7 @@ use pimalaya_stream::{
     proxy::Proxy,
     stream::{Stream, TcpConnectOptions, TlsConnectOptions},
 };
+use serde::de::DeserializeOwned;
 #[cfg(any(
     feature = "rustls-aws",
     feature = "rustls-ring",
@@ -50,6 +51,7 @@ use url::Url;
 use crate::v1::send::MSGRAPH_API_BASE;
 use crate::{
     coroutine::*,
+    v1::page::{MsgraphPage, MsgraphPageGet},
     v1::rest::batch::{MsgraphBatch, MsgraphBatchRequest, MsgraphBatchResponses},
     v1::rest::users::{
         MsgraphUser,
@@ -444,6 +446,20 @@ impl MsgraphClientStd {
         requests: &[MsgraphBatchRequest],
     ) -> Result<MsgraphSendOutput<MsgraphBatchResponses>, MsgraphClientStdError> {
         let coroutine = MsgraphBatch::new(&self.auth, requests)?;
+        self.run(coroutine)
+    }
+
+    /// Gets the page of `T` an `@odata.nextLink` or an `@odata.deltaLink`
+    /// names, asking for at most `max_page_size` items when given.
+    pub fn page_get<T: DeserializeOwned>(
+        &mut self,
+        link: &str,
+        max_page_size: Option<u32>,
+    ) -> Result<MsgraphSendOutput<MsgraphPage<T>>, MsgraphClientStdError> {
+        let mut coroutine = MsgraphPageGet::new(&self.auth, link)?;
+        if let Some(size) = max_page_size {
+            coroutine = coroutine.max_page_size(size);
+        }
         self.run(coroutine)
     }
 

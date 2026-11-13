@@ -4,7 +4,9 @@
 
 mod common;
 
-use common::{empty_response, json_response, run, text_response};
+use std::time::Duration;
+
+use common::{empty_response, http_response, json_response, run, text_response};
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use io_msgraph::v1::{
     field::MsgraphField,
@@ -126,7 +128,7 @@ fn batch_posts_requests_and_parses_responses() {
 
     let err = responses.pop().unwrap().parse::<MsgraphMailFolder>();
     assert!(
-        matches!(err, Err(MsgraphSendError::Api { status: 404, ref code, .. }) if code == "ErrorFolderNotFound")
+        matches!(err, Err(MsgraphSendError::Api(ref err)) if err.status == 404 && err.code == "ErrorFolderNotFound")
     );
 }
 
@@ -162,10 +164,11 @@ fn batch_response_decodes_base64_bodies_and_retry_after() {
 
     let throttled = next();
     assert_eq!(throttled.retry_after(), Some(7));
-    assert!(matches!(
-        throttled.bytes(),
-        Err(MsgraphSendError::Api { status: 429, .. })
-    ));
+    let err = throttled.bytes().unwrap_err();
+    assert_eq!(err.status(), Some(429));
+    assert_eq!(err.retry_after(), Some(Duration::from_secs(7)));
+    assert!(err.is_retryable());
+    assert!(err.api().unwrap().keep_alive);
 
     assert_eq!(next().retry_after(), None);
 
@@ -759,17 +762,83 @@ fn api_error_envelope_is_surfaced() {
     );
 
     match result.unwrap_err() {
-        MsgraphSendError::Api {
-            status,
-            code,
-            message,
-        } => {
-            assert_eq!(status, 404);
-            assert_eq!(code, "ErrorItemNotFound");
-            assert_eq!(message, "The folder does not exist.");
+        MsgraphSendError::Api(err) => {
+            assert_eq!(err.status, 404);
+            assert_eq!(err.code, "ErrorItemNotFound");
+            assert_eq!(err.message, "The folder does not exist.");
         }
         err => panic!("unexpected error: {err:?}"),
     }
+}
+
+#[test]
+fn an_api_error_carries_what_its_headers_ask() {
+    let body = r#"{ "error": { "code": "TooManyRequests", "message": "Slow down.",
+        "innerError": { "request-id": "from-the-body", "date": "2026-11-13T10:00:00" } } }"#;
+    let throttled = http_response(
+        "HTTP/1.1 429 Too Many Requests",
+        &[
+            ("Connection", "close"),
+            ("Retry-After", "17"),
+            ("request-id", "9f1c2d3e"),
+        ],
+        body.as_bytes(),
+    );
+
+    let mut coroutine = MsgraphMailFoldersList::new(&auth(), "me", &Default::default()).unwrap();
+    let err = run(&mut coroutine, &throttled).0.unwrap_err();
+
+    assert_eq!(err.retry_after(), Some(Duration::from_secs(17)));
+    assert!(err.is_throttled());
+    let api = err.api().unwrap();
+    assert_eq!(api.method, "GET");
+    assert_eq!(api.request_id.as_deref(), Some("9f1c2d3e"));
+    assert!(!api.keep_alive);
+
+    let challenge = r#"Bearer realm="", error="insufficient_claims", claims="eyJhY2Nlc3M""#;
+    let unauthorized = http_response(
+        "HTTP/1.1 401 Unauthorized",
+        &[
+            ("Connection", "keep-alive"),
+            ("WWW-Authenticate", challenge),
+            ("Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT"),
+        ],
+        body.as_bytes(),
+    );
+
+    let mut coroutine = MsgraphMailFoldersList::new(&auth(), "me", &Default::default()).unwrap();
+    let err = run(&mut coroutine, &unauthorized).0.unwrap_err();
+
+    let api = err.api().unwrap();
+    assert_eq!(api.www_authenticate.as_deref(), Some(challenge));
+    assert_eq!(api.request_id.as_deref(), Some("from-the-body"));
+    assert_eq!(api.retry_after, None);
+    assert!(api.keep_alive);
+    assert!(!err.is_retryable());
+}
+
+#[test]
+fn a_response_carries_its_headers() {
+    let answered = http_response(
+        "HTTP/1.1 200 OK",
+        &[
+            ("Connection", "keep-alive"),
+            ("Preference-Applied", "odata.maxpagesize=5"),
+        ],
+        br#"{ "value": [] }"#,
+    );
+
+    let mut coroutine = MsgraphMailFoldersList::new(&auth(), "me", &Default::default()).unwrap();
+    let out = run(&mut coroutine, &answered).0.unwrap();
+
+    let applied = out
+        .headers
+        .iter()
+        .find(|(name, _)| name == "preference-applied");
+    assert_eq!(
+        applied.map(|(_, value)| value.as_str()),
+        Some("odata.maxpagesize=5")
+    );
 }
 
 #[test]
@@ -1492,4 +1561,156 @@ fn todo_tasks_delta_parses_changes_and_removals() {
         MsgraphField::Set(MsgraphTodoTaskStatus::WaitingOnOthers)
     );
     assert!(out.delta_link.unwrap().contains("deltatoken=abc"));
+}
+
+#[test]
+fn rejects_an_attachment_over_what_one_request_takes() {
+    use io_msgraph::v1::rest::users::messages::attachments::create::MsgraphAttachmentCreate;
+
+    let limit = 3 * 1024 * 1024;
+    let content = vec![0; limit + 1];
+
+    let fits = MsgraphAttachmentCreate::new(&auth(), "me", "ID1", "a.bin", &content[..limit], None);
+    assert!(fits.is_ok());
+
+    let over = MsgraphAttachmentCreate::new(&auth(), "me", "ID1", "a.bin", &content, None);
+    assert!(matches!(over, Err(MsgraphSendError::InvalidRequest(_))));
+}
+
+#[test]
+fn rejects_a_link_off_the_graph_origin() {
+    use io_msgraph::v1::rest::users::{
+        events::{delta::MsgraphEventsDelta, list::MsgraphEventsList},
+        todo::{
+            lists::{delta::MsgraphTodoListsDelta, list::MsgraphTodoListsList},
+            tasks::{delta::MsgraphTodoTasksDelta, list::MsgraphTodoTasksList},
+        },
+    };
+
+    for link in [
+        "http://graph.microsoft.com/v1.0/me/messages/delta?$deltatoken=abc",
+        "https://graph.microsoft.com:8443/v1.0/me/messages/delta?$deltatoken=abc",
+        "https://graph.microsoft.com.example.org/v1.0/me/messages/delta",
+        "https://other.example/v1.0/me/messages/delta?$deltatoken=abc",
+    ] {
+        let refused = [
+            MsgraphMessagesDelta::from_link(&auth(), link).err(),
+            MsgraphContactsDelta::from_link(&auth(), link).err(),
+            MsgraphEventsDelta::from_link(&auth(), link).err(),
+            MsgraphEventsList::from_link(&auth(), link).err(),
+            MsgraphTodoListsDelta::from_link(&auth(), link).err(),
+            MsgraphTodoListsList::from_link(&auth(), link).err(),
+            MsgraphTodoTasksDelta::from_link(&auth(), link).err(),
+            MsgraphTodoTasksList::from_link(&auth(), link).err(),
+        ];
+
+        for err in refused {
+            assert!(
+                matches!(err, Some(MsgraphSendError::InvalidRequest(_))),
+                "{link}: {err:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_listing_follows_its_next_link() {
+    use io_msgraph::v1::page::MsgraphPageGet;
+
+    let first = r#"{
+        "value": [{ "id": "AAA", "displayName": "Inbox" }],
+        "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/mailFolders?$skip=1"
+    }"#;
+    let mut list = MsgraphMailFoldersList::new(&auth(), "me", &Default::default()).unwrap();
+    let (result, _) = run(&mut list, &json_response("HTTP/1.1 200 OK", first));
+    let link = result.unwrap().response.next_link.unwrap();
+
+    let last = r#"{ "value": [{ "id": "BBB", "displayName": "Archive" }], "@odata.count": 2 }"#;
+    let mut next = MsgraphPageGet::<MsgraphMailFolder>::new(&auth(), &link)
+        .unwrap()
+        .max_page_size(5);
+    let (result, written) = run(&mut next, &json_response("HTTP/1.1 200 OK", last));
+    let page = result.unwrap().response;
+
+    let request = String::from_utf8_lossy(&written);
+    assert!(
+        request.starts_with("GET /v1.0/me/mailFolders?$skip=1 "),
+        "got: {request}"
+    );
+    assert!(request.contains("Authorization: Bearer test-token"));
+    assert!(request.contains("Prefer: odata.maxpagesize=5"));
+    assert_eq!(page.value[0].id, "BBB");
+    assert_eq!(page.next_link, None);
+    assert_eq!(page.count, Some(2));
+
+    for link in [
+        "http://graph.microsoft.com/v1.0/me/mailFolders?$skip=1",
+        "https://other.example/v1.0/me/mailFolders?$skip=1",
+    ] {
+        let refused = MsgraphPageGet::<MsgraphMailFolder>::new(&auth(), link);
+        assert!(
+            matches!(refused.err(), Some(MsgraphSendError::InvalidRequest(_))),
+            "{link}"
+        );
+    }
+}
+
+#[test]
+fn a_server_error_is_retryable_only_where_a_repeat_is_safe() {
+    let body = r#"{ "error": { "code": "ServiceUnavailable", "message": "Try later." } }"#;
+    let unavailable = json_response("HTTP/1.1 503 Service Unavailable", body);
+
+    let mut send = MsgraphMailSendMime::new(&auth(), "me", b"Subject: hi\r\n\r\nbody").unwrap();
+    let err = run(&mut send, &unavailable).0.unwrap_err();
+    assert!(!err.is_retryable(), "a mail may have left: {err}");
+
+    let mut list = MsgraphMailFoldersList::new(&auth(), "me", &Default::default()).unwrap();
+    let err = run(&mut list, &unavailable).0.unwrap_err();
+    assert!(err.is_retryable(), "{err}");
+
+    let throttled = json_response("HTTP/1.1 429 Too Many Requests", body);
+    let mut send = MsgraphMailSendMime::new(&auth(), "me", b"Subject: hi\r\n\r\nbody").unwrap();
+    let err = run(&mut send, &throttled).0.unwrap_err();
+    assert!(
+        err.is_retryable(),
+        "a throttled request was not taken: {err}"
+    );
+}
+
+#[test]
+fn a_cleared_recipient_list_reaches_the_patch() {
+    let patch = MsgraphMessage {
+        to_recipients: MsgraphField::Set(vec![]),
+        cc_recipients: MsgraphField::Set(vec![]),
+        bcc_recipients: MsgraphField::Set(vec![]),
+        reply_to: MsgraphField::Set(vec![]),
+        ..Default::default()
+    };
+    let mut coroutine = MsgraphMessageUpdate::new(&auth(), "me", "ID1", &patch).unwrap();
+    let (_, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", "{}"));
+
+    let request = String::from_utf8_lossy(&written);
+    for list in ["toRecipients", "ccRecipients", "bccRecipients", "replyTo"] {
+        assert!(
+            request.contains(&format!("\"{list}\":[]")),
+            "got: {request}"
+        );
+    }
+
+    // NOTE: a list left alone stays out of the patch, and Graph keeps it.
+    let patch = MsgraphMessage {
+        is_read: Some(true),
+        ..Default::default()
+    };
+    let mut coroutine = MsgraphMessageUpdate::new(&auth(), "me", "ID1", &patch).unwrap();
+    let (_, written) = run(&mut coroutine, &json_response("HTTP/1.1 200 OK", "{}"));
+    assert!(!String::from_utf8_lossy(&written).contains("Recipients"));
+
+    let read: MsgraphMessage = serde_json::from_str(
+        r#"{ "toRecipients": [{ "emailAddress": { "address": "a@x.org" } }], "ccRecipients": [] }"#,
+    )
+    .unwrap();
+    assert_eq!(read.to_recipients.as_option().map(Vec::len), Some(1));
+    assert_eq!(read.cc_recipients, MsgraphField::Set(vec![]));
+    assert!(read.bcc_recipients.is_unset());
 }

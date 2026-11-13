@@ -3,17 +3,17 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/todotask-list-checklistitems>
 
-use alloc::{format, string::String, vec::Vec};
+use alloc::format;
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
-use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::{
     coroutine::*,
     msgraph_try,
     v1::{
+        page::MsgraphPage,
         rest::users::todo::tasks::checklist_items::MsgraphChecklistItem,
         send::{
             MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
@@ -22,16 +22,8 @@ use crate::{
     },
 };
 
-/// One page of checklist items (`value` plus the OData paging link).
-#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
-pub struct MsgraphChecklistItemsListResponse {
-    /// The checklist items of the page.
-    #[serde(default)]
-    pub value: Vec<MsgraphChecklistItem>,
-    /// The URL of the next page, when one exists.
-    #[serde(default, rename = "@odata.nextLink")]
-    pub next_link: Option<String>,
-}
+/// One page of checklist items.
+pub type MsgraphChecklistItemsListResponse = MsgraphPage<MsgraphChecklistItem>;
 
 /// Lists the checklist items of a Microsoft To Do task.
 pub struct MsgraphChecklistItemsList {

@@ -24,7 +24,7 @@ use url::Url;
 use crate::{
     coroutine::*,
     v1::send::{
-        MSGRAPH_API_BASE, MsgraphSendError, MsgraphSendOutput, parse_api_error, path_segment,
+        MSGRAPH_API_BASE, MsgraphApiError, MsgraphSendError, MsgraphSendOutput, path_segment,
         user_path,
     },
 };
@@ -81,15 +81,12 @@ impl MsgraphCoroutine for MsgraphMessageGetRaw {
                     debug!("message raw retrieved");
                     MsgraphCoroutineState::Complete(Ok(MsgraphSendOutput {
                         response: response.body,
+                        headers: response.headers,
                         keep_alive,
                     }))
                 } else {
-                    let (status, code, message) = parse_api_error(*response.status, &response.body);
-                    MsgraphCoroutineState::Complete(Err(MsgraphSendError::Api {
-                        status,
-                        code,
-                        message,
-                    }))
+                    let err = MsgraphApiError::of("GET", &response, keep_alive);
+                    MsgraphCoroutineState::Complete(Err(err.into()))
                 }
             }
         }

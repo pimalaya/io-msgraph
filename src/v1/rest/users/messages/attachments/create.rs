@@ -5,6 +5,10 @@
 //! Only the `fileAttachment` subtype is created here: the raw content is
 //! base64-encoded into `contentBytes`, as Graph requires.
 //!
+//! One request takes a file under 3 MB
+//! ([`MSGRAPH_ATTACHMENT_MAX_LEN`]). Graph takes a larger one through an
+//! upload session, which this crate does not model yet.
+//!
 //! <https://learn.microsoft.com/en-us/graph/api/message-post-attachments>
 
 use alloc::{format, string::String, vec::Vec};
@@ -26,6 +30,11 @@ use crate::{
         },
     },
 };
+
+/// Longest content, in octets, one attachment create request takes.
+///
+/// <https://learn.microsoft.com/en-us/graph/outlook-large-attachments>
+pub const MSGRAPH_ATTACHMENT_MAX_LEN: usize = 3 * 1024 * 1024;
 
 /// Body of the file attachment create request.
 #[derive(Debug, Serialize)]
@@ -49,7 +58,9 @@ impl MsgraphAttachmentCreate {
     /// an optional MIME `content_type`.
     ///
     /// The raw content bytes are base64-encoded into `contentBytes`,
-    /// as Graph requires.
+    /// as Graph requires. A content over
+    /// [`MSGRAPH_ATTACHMENT_MAX_LEN`] is refused with
+    /// [`MsgraphSendError::InvalidRequest`].
     pub fn new(
         auth: &HttpAuthBearer,
         user_id: &str,
@@ -62,6 +73,14 @@ impl MsgraphAttachmentCreate {
         trace!("message_id: {message_id:?}");
         trace!("name: {name:?}");
         trace!("content_type: {content_type:?}");
+
+        if content.len() > MSGRAPH_ATTACHMENT_MAX_LEN {
+            let len = content.len();
+            let reason = format!(
+                "an attachment of {len} octets is over the {MSGRAPH_ATTACHMENT_MAX_LEN} one request takes"
+            );
+            return Err(MsgraphSendError::InvalidRequest(reason));
+        }
 
         let user = user_path(user_id)?;
         let url = Url::parse(MSGRAPH_API_BASE)?.join(&format!(

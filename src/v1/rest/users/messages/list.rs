@@ -3,17 +3,18 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/user-list-messages>
 
-use alloc::{format, string::String, vec::Vec};
+use alloc::format;
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use url::Url;
 
 use crate::{
     coroutine::*,
     msgraph_try,
     v1::{
+        page::MsgraphPage,
         query::to_query_pairs,
         rest::users::messages::MsgraphMessage,
         send::{
@@ -23,24 +24,8 @@ use crate::{
     },
 };
 
-/// One page of messages (`value` plus the OData paging link).
-#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
-pub struct MsgraphMessagesListResponse {
-    /// The messages of the page.
-    #[serde(default)]
-    pub value: Vec<MsgraphMessage>,
-    /// The URL of the next page, when one exists.
-    #[serde(default, rename = "@odata.nextLink")]
-    pub next_link: Option<String>,
-    /// The number of messages matching the query, when `$count` asked
-    /// for it.
-    #[serde(
-        default,
-        rename = "@odata.count",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub count: Option<u64>,
-}
+/// One page of messages, with their count when `$count` asked for it.
+pub type MsgraphMessagesListResponse = MsgraphPage<MsgraphMessage>;
 
 /// OData query parameters for listing messages.
 #[derive(Debug, Clone, Default, Serialize, Eq, PartialEq)]

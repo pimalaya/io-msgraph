@@ -7,17 +7,18 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/user-list-events>
 
-use alloc::{format, string::String, vec::Vec};
+use alloc::format;
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use url::Url;
 
 use crate::{
     coroutine::*,
     msgraph_try,
     v1::{
+        page::{MsgraphPage, link_url},
         query::to_query_pairs,
         rest::users::events::MsgraphEvent,
         send::{
@@ -27,16 +28,8 @@ use crate::{
     },
 };
 
-/// One page of events (`value` plus the OData paging link).
-#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
-pub struct MsgraphEventsListResponse {
-    /// The events of the page.
-    #[serde(default)]
-    pub value: Vec<MsgraphEvent>,
-    /// The URL of the next page, when one exists.
-    #[serde(default, rename = "@odata.nextLink")]
-    pub next_link: Option<String>,
-}
+/// One page of events.
+pub type MsgraphEventsListResponse = MsgraphPage<MsgraphEvent>;
 
 /// OData query parameters for listing events.
 #[derive(Debug, Clone, Default, Serialize, Eq, PartialEq)]
@@ -92,12 +85,13 @@ impl MsgraphEventsList {
         Ok(Self { send })
     }
 
-    /// Continues a listing from an `@odata.nextLink`, sent as-is.
+    /// Continues a listing from an `@odata.nextLink`, sent as-is. A link
+    /// off the Microsoft Graph origin is refused.
     pub fn from_link(auth: &HttpAuthBearer, link: &str) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph events listing from link");
         trace!("link: {link}");
 
-        let url = Url::parse(link)?;
+        let url = link_url(link)?;
         let send = MsgraphSend::get(auth, url);
 
         Ok(Self { send })

@@ -54,7 +54,7 @@ pub fn empty_response(status_line: &str) -> Vec<u8> {
     http_response(status_line, &[("Connection", "close")], &[])
 }
 
-fn http_response(status_line: &str, headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
+pub fn http_response(status_line: &str, headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
     let mut response = Vec::new();
     response.extend_from_slice(status_line.as_bytes());
     response.extend_from_slice(b"\r\n");

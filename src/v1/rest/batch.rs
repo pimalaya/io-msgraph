@@ -19,7 +19,7 @@ use crate::{
     coroutine::*,
     msgraph_try,
     v1::send::{
-        MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, parse_api_error,
+        MSGRAPH_API_BASE, MsgraphApiError, MsgraphSend, MsgraphSendError, MsgraphSendOutput,
     },
 };
 
@@ -67,6 +67,10 @@ pub struct MsgraphBatchResponse {
 impl MsgraphBatchResponse {
     /// Parses the body of a 2xx response into `T`, or turns any other
     /// status into [`MsgraphSendError::Api`].
+    ///
+    /// The error holds the headers of the response and no method, the
+    /// request being the caller's; the connection is the batch's own, so
+    /// it reads as reusable.
     pub fn parse<T: DeserializeOwned>(self) -> Result<T, MsgraphSendError> {
         let body = self.body.unwrap_or(Value::Null);
 
@@ -75,12 +79,13 @@ impl MsgraphBatchResponse {
         }
 
         let body = serde_json::to_vec(&body).unwrap_or_default();
-        let (status, code, message) = parse_api_error(self.status, &body);
-        Err(MsgraphSendError::Api {
-            status,
-            code,
-            message,
-        })
+        let headers = self.headers.iter();
+        let headers = headers.map(|(name, value)| (name.as_str(), value.as_str()));
+
+        let mut err = MsgraphApiError::parse(self.status, headers, &body);
+        err.keep_alive = true;
+
+        Err(err.into())
     }
 
     /// Decodes the body of a 2xx response answered as a JSON string

@@ -51,17 +51,21 @@ pub struct MsgraphMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sender: Option<MsgraphRecipient>,
     /// The To recipients of the message.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub to_recipients: Vec<MsgraphRecipient>,
+    #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<Vec<MsgraphRecipient>>"))]
+    pub to_recipients: MsgraphField<Vec<MsgraphRecipient>>,
     /// The Cc recipients of the message.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub cc_recipients: Vec<MsgraphRecipient>,
+    #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<Vec<MsgraphRecipient>>"))]
+    pub cc_recipients: MsgraphField<Vec<MsgraphRecipient>>,
     /// The Bcc recipients of the message.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub bcc_recipients: Vec<MsgraphRecipient>,
+    #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<Vec<MsgraphRecipient>>"))]
+    pub bcc_recipients: MsgraphField<Vec<MsgraphRecipient>>,
     /// The addresses replies should be sent to.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reply_to: Vec<MsgraphRecipient>,
+    #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<Vec<MsgraphRecipient>>"))]
+    pub reply_to: MsgraphField<Vec<MsgraphRecipient>>,
     /// The reception date, as an ISO 8601 date-time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub received_date_time: Option<String>,

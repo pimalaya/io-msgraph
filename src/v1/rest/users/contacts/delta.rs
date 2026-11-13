@@ -9,7 +9,7 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/contact-delta>
 
-use alloc::{format, string::String, vec::Vec};
+use alloc::{format, string::String};
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
@@ -20,6 +20,7 @@ use crate::{
     coroutine::*,
     msgraph_try,
     v1::{
+        page::{MsgraphPage, link_url},
         rest::users::contacts::MsgraphContact,
         send::{
             MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, path_segment,
@@ -32,18 +33,7 @@ use crate::{
 ///
 /// More pages follow through `next_link`; the round ends when
 /// `delta_link` arrives (the token of the next round).
-#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
-pub struct MsgraphContactsDeltaResponse {
-    /// The changed contacts of the page.
-    #[serde(default)]
-    pub value: Vec<MsgraphContactDelta>,
-    /// The URL of the next page of the round, when one exists.
-    #[serde(default, rename = "@odata.nextLink")]
-    pub next_link: Option<String>,
-    /// The URL closing the round, carrying the next round's token.
-    #[serde(default, rename = "@odata.deltaLink")]
-    pub delta_link: Option<String>,
-}
+pub type MsgraphContactsDeltaResponse = MsgraphPage<MsgraphContactDelta>;
 
 /// One contact row of a delta page: the contact (only its id when the
 /// row is a removal), plus the `@removed` marker.
@@ -112,12 +102,13 @@ impl MsgraphContactsDelta {
     /// round from a saved `@odata.deltaLink`.
     ///
     /// The link already carries the folder, the `$select` and the
-    /// server-issued token, so it is sent as-is through a plain GET.
+    /// server-issued token, so it is sent as-is through a plain GET. A
+    /// link off the Microsoft Graph origin is refused.
     pub fn from_link(auth: &HttpAuthBearer, link: &str) -> Result<Self, MsgraphSendError> {
         debug!("prepare microsoft graph contacts delta from link");
         trace!("link: {link:?}");
 
-        let url = Url::parse(link)?;
+        let url = link_url(link)?;
         let send = MsgraphSend::get(auth, url);
 
         Ok(Self { send })

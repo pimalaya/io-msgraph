@@ -2,33 +2,26 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/user-list-calendars>
 
-use alloc::{format, string::String, vec::Vec};
+use alloc::format;
 
 use io_http::rfc6750::bearer::HttpAuthBearer;
 use log::{debug, trace};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use url::Url;
 
 use crate::{
     coroutine::*,
     msgraph_try,
     v1::{
+        page::MsgraphPage,
         query::to_query_pairs,
         rest::users::calendars::MsgraphCalendar,
         send::{MSGRAPH_API_BASE, MsgraphSend, MsgraphSendError, MsgraphSendOutput, user_path},
     },
 };
 
-/// One page of calendars (`value` plus the OData paging link).
-#[derive(Debug, Clone, Default, Deserialize, Serialize, Eq, PartialEq)]
-pub struct MsgraphCalendarsListResponse {
-    /// The calendars of the page.
-    #[serde(default)]
-    pub value: Vec<MsgraphCalendar>,
-    /// The URL of the next page, when one exists.
-    #[serde(default, rename = "@odata.nextLink")]
-    pub next_link: Option<String>,
-}
+/// One page of calendars.
+pub type MsgraphCalendarsListResponse = MsgraphPage<MsgraphCalendar>;
 
 /// OData query parameters for listing calendars.
 #[derive(Debug, Clone, Default, Serialize, Eq, PartialEq)]

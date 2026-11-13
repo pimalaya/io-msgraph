@@ -5,9 +5,10 @@
 //! Microsoft Graph reference:
 //! <https://learn.microsoft.com/en-us/graph/api/overview>.
 
-use core::{error::Error, fmt, marker::PhantomData};
+use core::{error::Error, fmt, marker::PhantomData, time::Duration};
 
 use alloc::{
+    boxed::Box,
     format,
     string::{String, ToString},
     vec::Vec,
@@ -18,6 +19,7 @@ use io_http::{
     rfc6750::bearer::HttpAuthBearer,
     rfc9110::{
         request::HttpRequest,
+        response::HttpResponse,
         send::{HttpSendOutput, HttpSendYield},
     },
     rfc9112::send::{Http11Send, Http11SendError},
@@ -109,16 +111,8 @@ pub enum MsgraphSendError {
     ParseUrl(url::ParseError),
     /// The request arguments were rejected before sending.
     InvalidRequest(String),
-    /// The Graph API answered a non-2xx status; carries the parsed
-    /// error envelope.
-    Api {
-        /// The HTTP status of the response.
-        status: u16,
-        /// The error code of the Graph error envelope.
-        code: String,
-        /// The human-readable message of the Graph error envelope.
-        message: String,
-    },
+    /// The Graph API answered a non-2xx status.
+    Api(Box<MsgraphApiError>),
     /// The server answered a 3xx; redirects are never followed.
     UnexpectedRedirect,
 }
@@ -133,14 +127,7 @@ impl fmt::Display for MsgraphSendError {
             Self::ParseResponse(err) => write!(f, "Microsoft Graph response parsing failed: {err}"),
             Self::ParseUrl(err) => write!(f, "Microsoft Graph URL parsing failed: {err}"),
             Self::InvalidRequest(reason) => write!(f, "Invalid Microsoft Graph request: {reason}"),
-            Self::Api {
-                status,
-                code,
-                message,
-            } => write!(
-                f,
-                "Microsoft Graph API returned HTTP {status} ({code}): {message}"
-            ),
+            Self::Api(err) => err.fmt(f),
             Self::UnexpectedRedirect => {
                 write!(f, "Microsoft Graph server returned an unexpected redirect")
             }
@@ -165,6 +152,12 @@ impl From<Http11SendError> for MsgraphSendError {
     }
 }
 
+impl From<MsgraphApiError> for MsgraphSendError {
+    fn from(err: MsgraphApiError) -> Self {
+        Self::Api(Box::new(err))
+    }
+}
+
 impl From<url::ParseError> for MsgraphSendError {
     fn from(err: url::ParseError) -> Self {
         Self::ParseUrl(err)
@@ -172,27 +165,162 @@ impl From<url::ParseError> for MsgraphSendError {
 }
 
 impl MsgraphSendError {
-    /// The HTTP status of an [`Api`](Self::Api) error, `None` for
-    /// every other variant.
-    pub fn status(&self) -> Option<u16> {
+    /// The API error of a non-2xx answer, `None` for every other
+    /// variant.
+    pub fn api(&self) -> Option<&MsgraphApiError> {
         match self {
-            Self::Api { status, .. } => Some(*status),
+            Self::Api(err) => Some(err.as_ref()),
             _ => None,
         }
     }
 
-    /// True for API statuses worth retrying (429 and common 5xx).
+    /// The HTTP status of an [`Api`](Self::Api) error, `None` for
+    /// every other variant.
+    pub fn status(&self) -> Option<u16> {
+        self.api().map(|err| err.status)
+    }
+
+    /// How long the server asked to wait before a retry
+    /// ([`MsgraphApiError::retry_after`]).
+    pub fn retry_after(&self) -> Option<Duration> {
+        self.api().and_then(|err| err.retry_after)
+    }
+
+    /// Whether Graph throttled the request
+    /// ([`MsgraphApiError::is_throttled`]).
+    pub fn is_throttled(&self) -> bool {
+        self.api().is_some_and(MsgraphApiError::is_throttled)
+    }
+
+    /// Whether the request can be sent again as it is
+    /// ([`MsgraphApiError::is_retryable`]).
     pub fn is_retryable(&self) -> bool {
-        matches!(self.status(), Some(429 | 500 | 502 | 503 | 504))
+        self.api().is_some_and(MsgraphApiError::is_retryable)
     }
 }
 
-/// Terminal value of every coroutine: the parsed response plus the
-/// connection reuse hint.
+/// A non-2xx answer of the Graph API: its error envelope, and what its
+/// headers tell a caller to do next.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct MsgraphApiError {
+    /// The HTTP status of the response.
+    pub status: u16,
+    /// The error code of the Graph error envelope.
+    pub code: String,
+    /// The human-readable message of the Graph error envelope.
+    pub message: String,
+    /// The method of the refused request, uppercase.
+    pub method: String,
+    /// How long the server asked to wait before a retry: the
+    /// `Retry-After` header in its seconds form, a date reading as none.
+    pub retry_after: Option<Duration>,
+    /// The `WWW-Authenticate` header, which carries the claims challenge
+    /// of a 401 the next token request has to answer.
+    pub www_authenticate: Option<String>,
+    /// The id Graph gave the request, from the `request-id` header, else
+    /// from the envelope.
+    pub request_id: Option<String>,
+    /// Whether the server allows reusing the TCP/TLS connection.
+    pub keep_alive: bool,
+}
+
+impl MsgraphApiError {
+    /// Reads a non-2xx answer: the error envelope of its body, falling
+    /// back as [`parse_api_error`] does, and its headers.
+    ///
+    /// Neither tells the method of the request nor the connection reuse:
+    /// the exchange fills those in.
+    pub fn parse<'a>(
+        status: u16,
+        headers: impl IntoIterator<Item = (&'a str, &'a str)>,
+        body: &[u8],
+    ) -> Self {
+        let envelope = serde_json::from_slice::<ErrorEnvelope>(body).ok();
+        let (status, code, message) = parse_api_error(status, body);
+
+        let mut err = Self {
+            status,
+            code,
+            message,
+            request_id: envelope
+                .and_then(|envelope| envelope.error.inner_error)
+                .and_then(|inner| inner.request_id),
+            ..Default::default()
+        };
+
+        for (name, value) in headers {
+            let value = value.trim();
+
+            if name.eq_ignore_ascii_case("retry-after") {
+                err.retry_after = value.parse().ok().map(Duration::from_secs);
+            } else if name.eq_ignore_ascii_case("www-authenticate") {
+                err.www_authenticate = Some(value.into());
+            } else if name.eq_ignore_ascii_case("request-id") {
+                err.request_id = Some(value.into());
+            }
+        }
+
+        err
+    }
+
+    /// The API error of the non-2xx `response` to a `method` request.
+    pub(crate) fn of(method: &str, response: &HttpResponse, keep_alive: bool) -> Self {
+        let headers = response.headers.iter();
+        let headers = headers.map(|(name, value)| (name.as_str(), value.as_str()));
+
+        let mut err = Self::parse(*response.status, headers, &response.body);
+        err.method = method.into();
+        err.keep_alive = keep_alive;
+
+        err
+    }
+
+    /// Whether Graph throttled the request (429): it was not taken, so
+    /// sending it again after [`retry_after`](Self::retry_after) is safe
+    /// whatever its method.
+    pub fn is_throttled(&self) -> bool {
+        self.status == 429
+    }
+
+    /// Whether the request can be sent again as it is: a throttled one,
+    /// or a transient 5xx on a method a repeat cannot double.
+    ///
+    /// A POST or a PATCH answered by a 5xx may have been applied, so it
+    /// is not retryable here: a mail could be sent twice.
+    pub fn is_retryable(&self) -> bool {
+        let transient = matches!(self.status, 500 | 502 | 503 | 504);
+        let idempotent = matches!(self.method.as_str(), "GET" | "HEAD" | "PUT" | "DELETE");
+
+        self.is_throttled() || (transient && idempotent)
+    }
+}
+
+impl fmt::Display for MsgraphApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            status,
+            code,
+            message,
+            ..
+        } = self;
+
+        write!(
+            f,
+            "Microsoft Graph API returned HTTP {status} ({code}): {message}"
+        )
+    }
+}
+
+impl Error for MsgraphApiError {}
+
+/// Terminal value of every coroutine: the parsed response, its headers
+/// and the connection reuse hint.
 #[derive(Clone, Debug)]
 pub struct MsgraphSendOutput<T> {
     /// The parsed response body.
     pub response: T,
+    /// The response headers, in order, names lowercased.
+    pub headers: Vec<(String, String)>,
     /// Whether the server allows reusing the TCP/TLS connection.
     pub keep_alive: bool,
 }
@@ -201,6 +329,7 @@ pub struct MsgraphSendOutput<T> {
 /// and parsing its JSON response into `T`.
 pub struct MsgraphSend<T> {
     state: State,
+    method: String,
     _phantom: PhantomData<T>,
 }
 
@@ -277,6 +406,7 @@ impl<T: DeserializeOwned> MsgraphSend<T> {
 
         Self {
             state: State::Prepare(request),
+            method: method.into(),
             _phantom: PhantomData,
         }
     }
@@ -343,24 +473,18 @@ impl<T: DeserializeOwned> MsgraphCoroutine for MsgraphSend<T> {
                         };
 
                         match serde_json::from_slice::<T>(body) {
-                            Ok(response) => {
-                                MsgraphCoroutineState::Complete(Ok(MsgraphSendOutput {
-                                    response,
-                                    keep_alive,
-                                }))
-                            }
+                            Ok(parsed) => MsgraphCoroutineState::Complete(Ok(MsgraphSendOutput {
+                                response: parsed,
+                                headers: response.headers,
+                                keep_alive,
+                            })),
                             Err(err) => MsgraphCoroutineState::Complete(Err(
                                 MsgraphSendError::ParseResponse(err),
                             )),
                         }
                     } else {
-                        let (status, code, message) =
-                            parse_api_error(*response.status, &response.body);
-                        MsgraphCoroutineState::Complete(Err(MsgraphSendError::Api {
-                            status,
-                            code,
-                            message,
-                        }))
+                        let err = MsgraphApiError::of(&self.method, &response, keep_alive);
+                        MsgraphCoroutineState::Complete(Err(err.into()))
                     }
                 }
             },
@@ -383,6 +507,14 @@ struct ErrorEnvelope {
 struct ErrorBody {
     code: Option<String>,
     message: Option<String>,
+    #[serde(rename = "innerError", alias = "innererror")]
+    inner_error: Option<InnerError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct InnerError {
+    #[serde(rename = "request-id")]
+    request_id: Option<String>,
 }
 
 /// Parse a Microsoft Graph error envelope into its
