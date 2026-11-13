@@ -6,7 +6,7 @@
 
 use alloc::{string::String, vec::Vec};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::v1::{field::MsgraphField, rest::users::contacts::MsgraphSingleValueExtendedProperty};
 
@@ -81,8 +81,13 @@ pub struct MsgraphMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub internet_message_id: Option<String>,
     /// The RFC 5322 header fields in the order Graph returns them,
-    /// repeated names kept, only when the request `$select`ed them.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// repeated names kept, only when the request `$select`ed them. A
+    /// `null` answer reads as none, so one row never fails its page.
+    #[serde(
+        default,
+        deserialize_with = "null_as_empty",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub internet_message_headers: Vec<MsgraphInternetMessageHeader>,
     /// The importance of the message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -203,6 +208,15 @@ pub enum MsgraphImportance {
     Normal,
     /// High importance.
     High,
+}
+
+/// Reads a collection Graph answers `null` for as an empty one.
+fn null_as_empty<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Option::<Vec<T>>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[cfg(test)]

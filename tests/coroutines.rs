@@ -326,6 +326,11 @@ fn messages_list_selects_internet_message_headers() {
             {
                 "@odata.etag": "W/\"CQAAABYAAAC4ofQHEIqCSbQPot83AFcbAAAnjjuY\"",
                 "id": "MSG2"
+            },
+            {
+                "@odata.etag": "W/\"CQAAABYAAAC4ofQHEIqCSbQPot83AFcbAAAnjjuX\"",
+                "id": "MSG3",
+                "internetMessageHeaders": null
             }
         ]
     }"#;
@@ -365,6 +370,7 @@ fn messages_list_selects_internet_message_headers() {
         ]
     );
     assert!(value[1].internet_message_headers.is_empty());
+    assert!(value[2].internet_message_headers.is_empty(), "null as none");
 }
 
 #[test]
