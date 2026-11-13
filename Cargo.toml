@@ -29,7 +29,7 @@ vendored = ["pimalaya-stream?/vendored"]
 
 [dev-dependencies]
 env_logger = "0.11"
-io-oauth = { version = "0.5", default-features = false, features = ["rustls-ring"] }
+io-oauth = { version = "0.6", default-features = false, features = ["rustls-ring"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12"] }
 rustls-platform-verifier = "0.7"
 secrecy = { version = "0.10", default-features = false }
@@ -38,7 +38,7 @@ secrecy = { version = "0.10", default-features = false }
 anyhow = { version = "1", optional = true }
 base64-codec = { version = "0.1", default-features = false, features = ["alloc"] }
 ical-rs = { version = "0.7", default-features = false, features = ["parser", "tzdb"], optional = true }
-io-http = { version = "0.6", default-features = false }
+io-http = { version = "0.7", default-features = false }
 jiff = { version = "0.2", default-features = false, features = ["alloc"], optional = true }
 log = { version = "0.4", default-features = false }
 pimalaya-stream = { version = "0.3", default-features = false, optional = true }

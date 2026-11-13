@@ -37,10 +37,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Changed `MsgraphAttachmentCreate::new` to refuse a content over `MSGRAPH_ATTACHMENT_MAX_LEN` with `MsgraphSendError::InvalidRequest`.
 - Changed `MsgraphMessage::categories` to a `MsgraphField<Vec<String>>`, so an update can clear the categories with `Set(vec![])` where an empty list used to be left out of the body. **Breaking.**
 - Changed `MsgraphMessageGet::new` and `MsgraphClientStd::message_get` to take a `$select` and an `$expand`, as the event get does. **Breaking.**
+- **BREAKING**: Changed the io-http dependency to 0.7.
 
 ### Fixed
 
-- Fixed ids holding `/`, `?`, `#` or other bytes outside the RFC 3986 path segment set being spliced raw into the request path, naming another resource: every coroutine now percent-encodes its ids, the user id of `user_path` included, and refuses an empty, `.` or `..` id with `MsgraphSendError::InvalidRequest`.
+- Fixed ids holding `/`, `?`, `#` or `%` being spliced raw into the request path, naming another resource: every coroutine now percent-encodes its ids, the user id of `user_path` included, and refuses an empty, `.` or `..` id, or one holding a tab or a line break, with `MsgraphSendError::InvalidRequest`.
 - Fixed the event, task and contact projections cutting a folded line at its first fold through the stash, a UID over 71 octets included (requires `ical` or `vcard` feature).
 
   The stash now holds unfolded lines, and a stash stored folded reads back whole.
@@ -67,6 +68,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Fixed every `from_link` constructor building an authorized request for whatever URL it was given.
 
   A link off the origin of `MSGRAPH_API_BASE` is refused with `MsgraphSendError::InvalidRequest`, as `MsgraphPageGet` refuses it.
+- Fixed an access token, a method or a header holding a line break adding lines to the request.
+
+  The first resume fails with `MsgraphSendError::InvalidRequest`, before any write.
 - Fixed the event and task projections panicking on an RRULE whose BYDAY element holds a multi-byte character (requires `ical` feature).
 
   Such a rule is refused as an unsupported recurrence.

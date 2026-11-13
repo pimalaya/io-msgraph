@@ -16,6 +16,7 @@ use alloc::{
 
 use io_http::{
     coroutine::{HttpCoroutine, HttpCoroutineState},
+    rfc3986::path::{HttpUrlBuildError, http_url_build},
     rfc6750::bearer::HttpAuthBearer,
     rfc9110::{
         request::HttpRequest,
@@ -50,37 +51,23 @@ pub fn user_path(user_id: &str) -> Result<String, MsgraphSendError> {
 /// Percent-encodes `raw` as one URL path segment, such as a folder or
 /// message id.
 ///
-/// Every byte outside the RFC 3986 `pchar` set is encoded, so a `/`, `?`
-/// or `#` stays inside the segment rather than naming another resource.
-/// An empty, `.` or `..` segment is refused: URL resolution would drop
-/// it or climb a level, whether encoded or not.
+/// The segment is encoded by [`http_url_build`], so a `/`, `?`, `#` or
+/// `%` stays inside it rather than naming another resource. An empty, `.`
+/// or `..` segment is refused, as is one holding a tab or a line break:
+/// URL resolution would drop it, climb a level or strip those bytes.
 pub fn path_segment(raw: &str) -> Result<String, MsgraphSendError> {
-    if matches!(raw, "" | "." | "..") {
-        let reason = format!("`{raw}` is not a valid path segment");
-        return Err(MsgraphSendError::InvalidRequest(reason));
-    }
-
-    Ok(encode_segment(raw))
-}
-
-fn encode_segment(raw: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-
-    let mut encoded = String::with_capacity(raw.len());
-
-    for &byte in raw.as_bytes() {
-        let pchar = byte.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@".contains(&byte);
-
-        if pchar {
-            encoded.push(byte as char);
-        } else {
-            encoded.push('%');
-            encoded.push(HEX[usize::from(byte >> 4)] as char);
-            encoded.push(HEX[usize::from(byte & 0xF)] as char);
+    let url = match http_url_build(MSGRAPH_API_BASE, [raw]) {
+        Ok(url) => url,
+        Err(HttpUrlBuildError::InvalidBaseUrl(err, _)) => return Err(err.into()),
+        Err(HttpUrlBuildError::InvalidSegment(_)) => {
+            let reason = format!("{raw:?} is not a valid path segment");
+            return Err(MsgraphSendError::InvalidRequest(reason));
         }
-    }
+    };
 
-    encoded
+    let (_, segment) = url.path().rsplit_once('/').unwrap_or_default();
+
+    Ok(segment.into())
 }
 
 /// Marker for endpoints that return an empty body (DELETE, sendMail,
@@ -148,7 +135,10 @@ impl Error for MsgraphSendError {
 
 impl From<Http11SendError> for MsgraphSendError {
     fn from(err: Http11SendError) -> Self {
-        Self::Send(err)
+        match err {
+            Http11SendError::InvalidRequest(err) => Self::InvalidRequest(err.to_string()),
+            err => Self::Send(err),
+        }
     }
 }
 
@@ -570,7 +560,7 @@ mod tests {
 
     #[test]
     fn a_path_segment_refuses_what_url_resolution_drops() {
-        for raw in ["", ".", ".."] {
+        for raw in ["", ".", "..", ".\t.", "a\nb"] {
             let err = path_segment(raw).unwrap_err();
             assert!(matches!(err, MsgraphSendError::InvalidRequest(_)));
 

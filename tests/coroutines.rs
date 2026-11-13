@@ -255,6 +255,25 @@ fn rejects_a_user_id_url_resolution_drops() {
 }
 
 #[test]
+fn a_token_holding_a_line_break_never_reaches_the_wire() {
+    let auth = HttpAuthBearer::new("test-token\r\nX-Injected: 1");
+    let response = empty_response("HTTP/1.1 204 No Content");
+
+    let mut coroutine = MsgraphUserGet::new(&auth, "me").unwrap();
+    let (result, written) = run(&mut coroutine, &response);
+    let err = result.unwrap_err();
+    assert!(matches!(err, MsgraphSendError::InvalidRequest(_)), "{err}");
+    assert!(!err.to_string().contains("X-Injected"), "{err}");
+    assert!(written.is_empty());
+
+    let mut coroutine = MsgraphMessageGetRaw::new(&auth, "me", "ID123").unwrap();
+    let (result, written) = run(&mut coroutine, &response);
+    let err = result.unwrap_err();
+    assert!(matches!(err, MsgraphSendError::InvalidRequest(_)), "{err}");
+    assert!(written.is_empty());
+}
+
+#[test]
 fn deletes_folder_issues_delete() {
     let mut coroutine = MsgraphMailFolderDelete::new(&auth(), "me", "AAA").unwrap();
     let (result, written) = run(&mut coroutine, &empty_response("HTTP/1.1 204 No Content"));

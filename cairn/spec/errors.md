@@ -14,5 +14,8 @@ A non-2xx answer SHALL complete as an API error holding the status, the code and
 ### Requirement: A request is retryable only where a repeat is safe
 A throttled answer (429) SHALL read as retryable whatever the method. A 500, 502, 503 or 504 SHALL read as retryable for a GET, a HEAD, a PUT or a DELETE only, a POST or a PATCH possibly having been applied.
 
+### Requirement: A request that cannot be serialised is refused unsent
+A request whose method or header name is not a token, or whose header value holds a CR, a LF or a NUL, the access token included, SHALL complete its first resume with `InvalidRequest`, nothing written, and the refusal SHALL NOT hold the header value.
+
 ### Requirement: A response carries its headers
 A 2xx answer SHALL complete with the response headers, in order, names lowercased, beside the parsed body and the connection reuse flag.
