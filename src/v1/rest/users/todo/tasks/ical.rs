@@ -27,7 +27,7 @@
 //! - a linked resource with a URL is minted read-only as an ATTACH
 //!   carrying `X-MSGRAPH-LINKED-RESOURCE`, which a write drops: Graph keeps
 //!   linked resources apart from the task;
-//! - everything else, the UID among it, is stashed verbatim in the
+//! - everything else, the UID among it, is stashed as events do, in the
 //!   single-value extended property the events projection uses
 //!   ([`MSGRAPH_TODO_TASK_STASH_ID`]) and spliced back on read; Graph
 //!   returns it only expanded ([`MSGRAPH_TODO_TASK_STASH_EXPAND`]), which a
@@ -1014,6 +1014,7 @@ mod tests {
     use crate::v1::{
         field::MsgraphField,
         rest::users::{
+            contacts::tests::*,
             events::{
                 MsgraphDateTimeTimeZone, MsgraphDayOfWeek, MsgraphRecurrencePatternType,
                 MsgraphRecurrenceRangeType,
@@ -1390,6 +1391,118 @@ mod tests {
             "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;RELATED=END:-PT15M\r\nDESCRIPTION:Soon\r\nEND:VALARM\r\n"
         ));
         assert!(read.contains("TRIGGER;VALUE=DATE-TIME:20261120T080000Z\r\n"));
+    }
+
+    /// A document whose VTODO holds `extra`, its lines ended by `eol`.
+    fn stashing(extra: &str, eol: &str) -> String {
+        [
+            "BEGIN:VCALENDAR",
+            "BEGIN:VTODO",
+            extra,
+            "END:VTODO",
+            "END:VCALENDAR",
+            "",
+        ]
+        .join(eol)
+    }
+
+    #[test]
+    fn an_unmanaged_line_round_trips_whatever_its_folds() {
+        let heads = [
+            "X-CUSTOM",
+            "CONTACT;LANGUAGE=fr",
+            "RELATED-TO;RELTYPE=PARENT;X-TITLE=\"Caf\u{e9}, Z\u{fc}rich\"",
+        ];
+
+        for head in heads {
+            for len in 0..=160 {
+                let line = format!("{head}:{}", sample(len));
+
+                for width in [1, 2, 3, 7, 74, 75, 76, usize::MAX] {
+                    for eol in ["\r\n", "\n"] {
+                        let doc = stashing(&folded(&line, width, eol), eol);
+                        let task = MsgraphTodoTask::from_ical(doc.as_bytes(), PARIS).unwrap();
+
+                        let stash = stash_lines(&task.single_value_extended_properties);
+                        assert_eq!(stash, [line.as_str()], "width {width}");
+
+                        let back = unfolded(&stored(task).to_ical(PARIS));
+                        assert!(back.contains(&line), "width {width}: {back:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_folded_uid_and_a_folded_written_form_read_back_whole() {
+        let uid = "040000008200E00074C5B7101A82".repeat(4);
+        let lines = [
+            format!("UID:{uid}"),
+            String::from(
+                "DUE;TZID=Europe/Paris;X-NOTE=\"the end of the working day\":20261120T170000",
+            ),
+        ];
+        let extra = lines.each_ref().map(|line| folded(line, 75, "\r\n"));
+        let doc = stashing(&extra.join("\r\n"), "\r\n");
+
+        let task = MsgraphTodoTask::from_ical(doc.as_bytes(), PARIS).unwrap();
+        assert_eq!(task.stashed_uid().as_deref(), Some(uid.as_str()));
+
+        let back = unfolded(&stored(task).to_ical(PARIS));
+        for line in &lines {
+            assert!(back.contains(line), "{back:?}");
+        }
+    }
+
+    #[test]
+    fn a_stash_stored_folded_reads_back_whole() {
+        let lines = [
+            format!("UID:{}", "040000008200E00074C5B7101A82".repeat(4)),
+            format!("X-CUSTOM:{}", sample(200)),
+            String::from("CONTACT:Bob"),
+        ];
+        // NOTE: the stash once held each line as its writer folded it.
+        let value = lines.each_ref().map(|line| folded(line, 75, "\r\n"));
+        let task = MsgraphTodoTask {
+            single_value_extended_properties: MsgraphField::Set(vec![
+                MsgraphSingleValueExtendedProperty {
+                    id: MSGRAPH_TODO_TASK_STASH_ID.into(),
+                    value: value.join("\n"),
+                },
+            ]),
+            ..graph_task()
+        };
+
+        assert_eq!(task.stashed_uid().as_deref(), Some(&lines[0][4..]));
+
+        let back = unfolded(&task.to_ical(PARIS));
+        for line in &lines {
+            assert!(back.contains(line), "{back:?}");
+        }
+    }
+
+    #[test]
+    fn a_weekday_that_is_not_ascii_is_refused() {
+        for day in ["\u{e9}", "\u{e9}a", "\u{20ac}", "1\u{20ac}", "M\u{e9}"] {
+            let rule = format!("FREQ=WEEKLY;BYDAY={day}");
+            let extra = format!("DUE;VALUE=DATE:20261109\r\nRRULE:{rule}");
+            let doc = stashing(&extra, "\r\n");
+
+            assert!(matches!(
+                MsgraphTodoTask::from_ical(doc.as_bytes(), PARIS),
+                Err(MsgraphTodoTaskIcalError::UnsupportedRecurrence(refused)) if refused == rule
+            ));
+
+            // NOTE: a rule a stash holds is read against Graph's too.
+            let mut task = graph_task();
+            task.single_value_extended_properties =
+                MsgraphField::Set(vec![MsgraphSingleValueExtendedProperty {
+                    id: MSGRAPH_TODO_TASK_STASH_ID.into(),
+                    value: format!("RRULE:{rule}"),
+                }]);
+            assert!(!task.to_ical(PARIS).contains("RRULE"));
+        }
     }
 
     #[test]

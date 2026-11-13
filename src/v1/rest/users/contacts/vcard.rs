@@ -12,10 +12,10 @@
 //! - Graph-only fields (`fileAs`, `officeLocation`, `assistantName`,
 //!   `manager`) are minted as read-only `X-MSGRAPH-*` properties and
 //!   consumed on the way back, the server value staying authoritative;
-//! - every other vCard line rides a single-value extended property, the
-//!   stash ([`MSGRAPH_CONTACT_STASH_ID`]), and is spliced back verbatim on
-//!   read. Graph omits extended properties unless expanded, so a read that
-//!   should carry the stash passes [`MSGRAPH_CONTACT_STASH_EXPAND`].
+//! - every other vCard line rides, unfolded, a single-value extended
+//!   property, the stash ([`MSGRAPH_CONTACT_STASH_ID`]), and is spliced back
+//!   on read. Graph omits extended properties unless expanded, so a read
+//!   that should carry the stash passes [`MSGRAPH_CONTACT_STASH_EXPAND`].
 //!
 //! [`MsgraphContact::from_vcard`] is the full-state projection: every
 //! managed field is Set when the vCard carries it and Null when it does
@@ -588,8 +588,15 @@ impl MsgraphContact {
             };
 
             if !consumed {
-                let raw = line.to_string();
-                let raw = raw.trim_end().to_string();
+                // NOTE: the logical line, without the folds it arrived with.
+                let mut raw = String::from(line.name.get());
+                for param in &line.params {
+                    raw.push(';');
+                    raw.push_str(&param.to_string());
+                }
+                raw.push(':');
+                raw.push_str(&line.value.to_string());
+
                 if raw.len() <= MAX_STASH_LINE {
                     stash.push(raw);
                 }
@@ -885,9 +892,7 @@ fn stash_lines(contact: &MsgraphContact) -> Vec<String> {
         .unwrap_or(&[])
         .iter()
         .filter(|prop| prop.id.to_ascii_lowercase().contains("cardamum-vcard"))
-        .flat_map(|prop| prop.value.split('\n'))
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
+        .flat_map(MsgraphSingleValueExtendedProperty::stash_lines)
         .collect()
 }
 
@@ -926,6 +931,7 @@ fn type_values(line: &VcardLine) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::v1::rest::users::contacts::tests::*;
 
     /// A contact filling every field the projection manages.
     fn full_contact() -> MsgraphContact {
@@ -1301,6 +1307,78 @@ mod tests {
         let vcard = contact.to_vcard();
         assert!(vcard.contains("UID:urn:uuid:4fbe8971\r\n"));
         assert!(!vcard.contains("UID:AAMkAGI2"));
+    }
+
+    /// A card holding `extra`, its lines ended by `eol`.
+    fn stashing(extra: &str, eol: &str) -> String {
+        ["BEGIN:VCARD", "VERSION:4.0", "FN:X", extra, "END:VCARD", ""].join(eol)
+    }
+
+    #[test]
+    fn an_unmanaged_line_round_trips_whatever_its_folds() {
+        let heads = [
+            "X-CUSTOM",
+            "KEY;MEDIATYPE=application/pgp-keys",
+            "item1.X-ABLABEL;X-TITLE=\"Caf\u{e9}, Z\u{fc}rich\"",
+        ];
+
+        for head in heads {
+            for len in 0..=160 {
+                let line = format!("{head}:{}", sample(len));
+
+                for width in [1, 2, 3, 7, 74, 75, 76, usize::MAX] {
+                    for eol in ["\r\n", "\n"] {
+                        let card = stashing(&folded(&line, width, eol), eol);
+                        let contact = MsgraphContact::from_vcard(&card).unwrap();
+
+                        let stash = stash_lines(&contact);
+                        assert_eq!(stash, [line.as_str()], "width {width}");
+
+                        let back = unfolded(&contact.to_vcard());
+                        assert!(back.contains(&line), "width {width}: {back:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_folded_uid_reads_back_whole() {
+        let uid = "040000008200E00074C5B7101A82".repeat(4);
+        let line = format!("UID:{uid}");
+        let card = stashing(&folded(&line, 75, "\r\n"), "\r\n");
+
+        let contact = MsgraphContact::from_vcard(&card).unwrap();
+
+        assert_eq!(contact.stashed_uid().as_deref(), Some(uid.as_str()));
+        assert!(unfolded(&contact.to_vcard()).contains(&line));
+    }
+
+    #[test]
+    fn a_stash_stored_folded_reads_back_whole() {
+        let lines = [
+            format!("UID:{}", "040000008200E00074C5B7101A82".repeat(4)),
+            format!("X-CUSTOM:{}", sample(200)),
+            String::from("X-LAST:1"),
+        ];
+        // NOTE: the stash once held each line as its writer folded it.
+        let value = lines.each_ref().map(|line| folded(line, 75, "\r\n"));
+        let contact = MsgraphContact {
+            single_value_extended_properties: MsgraphField::Set(vec![
+                MsgraphSingleValueExtendedProperty {
+                    id: MSGRAPH_CONTACT_STASH_ID.into(),
+                    value: value.join("\n"),
+                },
+            ]),
+            ..full_contact()
+        };
+
+        assert_eq!(contact.stashed_uid().as_deref(), Some(&lines[0][4..]));
+
+        let back = unfolded(&contact.to_vcard());
+        for line in &lines {
+            assert!(back.contains(line), "{back:?}");
+        }
     }
 
     #[test]

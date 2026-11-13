@@ -28,9 +28,9 @@
 //!   for `iCalUId`; when it wraps the organizer's UID (the `vCal-Uid`
 //!   form), that UID is the one projected ([`original_uid`]);
 //! - everything else, the UID among it, Graph minting its own `iCalUId`, is
-//!   stashed verbatim in a single-value extended property
-//!   ([`MSGRAPH_EVENT_STASH_ID`]) and spliced back on read; Graph returns it
-//!   only expanded ([`MSGRAPH_EVENT_STASH_EXPAND`]).
+//!   stashed, one unfolded line per property, in a single-value extended
+//!   property ([`MSGRAPH_EVENT_STASH_ID`]) and spliced back on read; Graph
+//!   returns it only expanded ([`MSGRAPH_EVENT_STASH_EXPAND`]).
 //!
 //! A write of a document goes to the series master alone: an exception
 //! edited locally, a cancelled occurrence and an EXDATE do not push with
@@ -1256,7 +1256,9 @@ pub(crate) fn recurrence(
             "UNTIL" => until_value = Some(value.to_owned()),
             "BYDAY" => {
                 for day in value.split(',') {
-                    let (ordinal, name) = day.split_at(day.len().saturating_sub(2));
+                    let (ordinal, name) = day
+                        .split_at_checked(day.len().saturating_sub(2))
+                        .ok_or_else(unsupported)?;
                     if !ordinal.is_empty() {
                         by_setpos = Some(ordinal.parse::<i32>().map_err(|_| unsupported())?);
                     }
@@ -1591,9 +1593,7 @@ pub(crate) fn stash_lines(
         .unwrap_or(&[])
         .iter()
         .filter(|prop| prop.id.to_ascii_lowercase().contains("pimalaya-ical"))
-        .flat_map(|prop| prop.value.split('\n'))
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
+        .flat_map(MsgraphSingleValueExtendedProperty::stash_lines)
         .collect()
 }
 
@@ -1646,19 +1646,36 @@ pub(crate) fn text(line: &IcalLine<'_>) -> String {
     IcalText::decode(&line.value).0.into_owned()
 }
 
-/// One logical line, its ending stripped, for the stash.
+/// One logical line for the stash: no fold, no ending.
 pub(crate) fn raw_line(line: &IcalLine<'_>) -> String {
-    line.to_string().trim_end_matches(['\r', '\n']).to_owned()
+    let mut raw = String::from(line.name.get());
+
+    for param in &line.params {
+        raw.push(';');
+        raw.push_str(&param.to_string());
+    }
+
+    raw.push(':');
+    raw.push_str(&line.raw_value_str());
+
+    raw
 }
 
-/// A whole component as its raw lines, endings stripped.
+/// A whole component as its logical lines, from its BEGIN to its END.
 pub(crate) fn raw_component(component: &IcalCst<'_>) -> Vec<String> {
-    component
-        .to_string()
-        .lines()
-        .map(|line| line.trim_end_matches('\r').to_owned())
-        .filter(|line| !line.is_empty())
-        .collect()
+    let mut lines: Vec<String> = component.begin.iter().map(raw_line).collect();
+
+    for item in &component.items {
+        match item {
+            IcalItem::Prop(line) => lines.push(raw_line(line)),
+            IcalItem::Component(child) => lines.extend(raw_component(child)),
+            IcalItem::Opaque(bytes) => lines.push(String::from_utf8_lossy(bytes).into_owned()),
+        }
+    }
+
+    lines.extend(component.end.iter().map(raw_line));
+
+    lines
 }
 
 /// The BYSETPOS of a relative pattern's week index.
@@ -1813,7 +1830,7 @@ fn unwrap_global_object_id(ical_uid: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v1::rest::users::messages::MsgraphRecipient;
+    use crate::v1::rest::users::{contacts::tests::*, messages::MsgraphRecipient};
 
     /// A weekly series in a Windows-named zone, as Outlook creates one.
     fn master() -> MsgraphEvent {
@@ -2240,6 +2257,152 @@ mod tests {
         assert!(back.contains("UID:urn:uuid:4fbe8971\r\n"), "{back}");
         assert!(!back.contains("UID:040000008200E0"), "{back}");
         assert!(back.contains("X-CUSTOM;X-P=1:kept\r\n"), "{back}");
+    }
+
+    /// A document whose VEVENT holds `extra`, its lines ended by `eol`.
+    fn stashing(extra: &[u8], eol: &str) -> Vec<u8> {
+        let head = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "BEGIN:VEVENT",
+            "DTSTART:20261120T090000Z",
+            "DTEND:20261120T100000Z",
+            "",
+        ]
+        .join(eol);
+        let tail = ["", "END:VEVENT", "END:VCALENDAR", ""].join(eol);
+
+        [head.as_bytes(), extra, tail.as_bytes()].concat()
+    }
+
+    /// The heads of lines the projection does not manage.
+    const UNMANAGED: [&str; 3] = [
+        "X-CUSTOM",
+        "COMMENT;LANGUAGE=fr",
+        "X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-TITLE=\"Caf\u{e9}, Z\u{fc}rich\"",
+    ];
+
+    #[test]
+    fn an_unmanaged_line_round_trips_whatever_its_folds() {
+        for head in UNMANAGED {
+            for len in 0..=160 {
+                let line = format!("{head}:{}", sample(len));
+
+                for width in [1, 2, 3, 7, 74, 75, 76, usize::MAX] {
+                    for eol in ["\r\n", "\n"] {
+                        let doc = stashing(folded(&line, width, eol).as_bytes(), eol);
+                        let event = MsgraphEvent::from_ical(&doc).unwrap();
+
+                        let stash = stash_lines(&event.single_value_extended_properties);
+                        assert_eq!(stash, [line.as_str()], "width {width}");
+
+                        let back = unfolded(&event.to_ical());
+                        assert!(back.contains(&line), "width {width}: {back:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_fold_inside_a_character_is_stashed_whole() {
+        let line = format!("X-CUSTOM:{}", sample(120));
+
+        for width in 1..=75 {
+            let chunks: Vec<&[u8]> = line.as_bytes().chunks(width).collect();
+            let doc = stashing(&chunks.join(b"\r\n ".as_slice()), "\r\n");
+            let event = MsgraphEvent::from_ical(&doc).unwrap();
+
+            let back = unfolded(&event.to_ical());
+            assert!(back.contains(&line), "width {width}: {back:?}");
+        }
+    }
+
+    #[test]
+    fn a_folded_uid_reads_back_whole() {
+        let uid = "040000008200E00074C5B7101A82".repeat(4);
+        let line = format!("UID:{uid}");
+        let doc = stashing(folded(&line, 75, "\r\n").as_bytes(), "\r\n");
+
+        let event = MsgraphEvent::from_ical(&doc).unwrap();
+
+        assert_eq!(event.stashed_uid().as_deref(), Some(uid.as_str()));
+        assert!(unfolded(&event.to_ical()).contains(&line));
+    }
+
+    #[test]
+    fn a_stash_stored_folded_reads_back_whole() {
+        let uid = format!("UID:{}", "040000008200E00074C5B7101A82".repeat(4));
+
+        for head in UNMANAGED {
+            for len in 0..=160 {
+                let line = format!("{head}:{}", sample(len));
+
+                for width in [1, 2, 3, 7, 74, 75, 76] {
+                    for eol in ["\r\n", "\n"] {
+                        // NOTE: the stash once held each line as its
+                        // writer folded it.
+                        let value = [
+                            folded(&uid, 75, eol),
+                            folded(&line, width, eol),
+                            String::from("X-LAST:1"),
+                        ]
+                        .join("\n");
+                        let event = MsgraphEvent {
+                            single_value_extended_properties: MsgraphField::Set(vec![
+                                MsgraphSingleValueExtendedProperty {
+                                    id: MSGRAPH_EVENT_STASH_ID.into(),
+                                    value,
+                                },
+                            ]),
+                            ..master()
+                        };
+
+                        assert_eq!(event.stashed_uid().as_deref(), Some(&uid[4..]));
+
+                        let back = unfolded(&event.to_ical());
+                        assert!(back.contains(&uid), "width {width}: {back:?}");
+                        assert!(back.contains(&line), "width {width}: {back:?}");
+                        assert!(back.contains(&String::from("X-LAST:1")), "{back:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_stashed_alarm_keeps_its_folded_lines() {
+        let description = format!("DESCRIPTION:{}", sample(120));
+        let alarm = [
+            "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nEND:VALARM",
+            "BEGIN:VALARM\r\nACTION:EMAIL\r\nTRIGGER:-PT1H",
+            &folded(&description, 75, "\r\n"),
+            "END:VALARM",
+        ]
+        .join("\r\n");
+
+        let event = MsgraphEvent::from_ical(&stashing(alarm.as_bytes(), "\r\n")).unwrap();
+
+        let stash = stash_lines(&event.single_value_extended_properties);
+        assert!(stash.contains(&description), "{stash:?}");
+
+        let back = unfolded(&event.to_ical()).join("\r\n");
+        let whole =
+            format!("BEGIN:VALARM\r\nACTION:EMAIL\r\nTRIGGER:-PT1H\r\n{description}\r\nEND:VALARM");
+        assert!(back.contains(&whole), "{back}");
+    }
+
+    #[test]
+    fn a_weekday_that_is_not_ascii_is_refused() {
+        for day in ["\u{e9}", "\u{e9}a", "\u{20ac}", "1\u{20ac}", "M\u{e9}"] {
+            let rule = format!("FREQ=WEEKLY;BYDAY={day}");
+            let doc = stashing(format!("RRULE:{rule}").as_bytes(), "\r\n");
+
+            assert!(matches!(
+                MsgraphEvent::from_ical(&doc),
+                Err(MsgraphEventIcalError::UnsupportedRecurrence(refused)) if refused == rule
+            ));
+        }
     }
 
     #[test]

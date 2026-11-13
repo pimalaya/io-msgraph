@@ -172,3 +172,80 @@ pub struct MsgraphSingleValueExtendedProperty {
     #[serde(default)]
     pub value: String,
 }
+
+#[cfg(any(feature = "ical", feature = "vcard"))]
+impl MsgraphSingleValueExtendedProperty {
+    /// The logical lines of a stash value, which holds one per line feed.
+    ///
+    /// A value stored before the stash held logical lines kept the folds of
+    /// its source: a piece opening on a space or a tab continues the line
+    /// before it, as it does in a document.
+    pub(crate) fn stash_lines(&self) -> Vec<String> {
+        let mut lines: Vec<String> = Vec::new();
+        let mut open = false;
+
+        for piece in self.value.split('\n') {
+            let piece = piece.strip_suffix('\r').unwrap_or(piece);
+
+            match (piece.strip_prefix([' ', '\t']), lines.last_mut()) {
+                (Some(continuation), Some(line)) if open => line.push_str(continuation),
+                _ => {
+                    let line = piece.trim_start_matches([' ', '\t']);
+                    open = !line.is_empty();
+                    if open {
+                        lines.push(line.into());
+                    }
+                }
+            }
+        }
+
+        lines
+    }
+}
+
+#[cfg(all(test, any(feature = "ical", feature = "vcard")))]
+pub(crate) mod tests {
+    use alloc::{borrow::ToOwned, string::String, vec::Vec};
+
+    /// The first `len` characters of a value mixing separators with
+    /// characters of one to four octets.
+    pub(crate) fn sample(len: usize) -> String {
+        "aZ 9:;,=\"\\n\u{e9}\u{20ac}\u{1d11e}-"
+            .chars()
+            .cycle()
+            .take(len)
+            .collect()
+    }
+
+    /// Folds `line` so no physical line runs over `width` octets, on a
+    /// space and a tab in turn.
+    pub(crate) fn folded(line: &str, width: usize, eol: &str) -> String {
+        let mut out = String::new();
+        let mut room = width;
+        let mut tab = false;
+
+        for (index, char) in line.char_indices() {
+            if index > 0 && room < char.len_utf8() {
+                out.push_str(eol);
+                out.push(if tab { '\t' } else { ' ' });
+                tab = !tab;
+                room = width;
+            }
+
+            out.push(char);
+            room = room.saturating_sub(char.len_utf8());
+        }
+
+        out
+    }
+
+    /// The logical lines of a document ended by CRLF.
+    pub(crate) fn unfolded(document: &str) -> Vec<String> {
+        document
+            .replace("\r\n ", "")
+            .replace("\r\n\t", "")
+            .split("\r\n")
+            .map(ToOwned::to_owned)
+            .collect()
+    }
+}
