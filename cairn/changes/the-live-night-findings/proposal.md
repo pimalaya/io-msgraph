@@ -16,4 +16,4 @@ The live test night of 2026-11-23 (workspace .lanes/live/report.md §9) and the 
 
 ## Not in scope
 
-An event created or updated with a description is still rewritten; that is neverest's to report (its ruling R2, a delete overruled by a server edit). The To Do task projection sends an empty body the same way; whether Graph rewrites a task after it was not probed.
+An event created or updated with a description is still rewritten; that is neverest's to report (its ruling R2, a delete overruled by a server edit). The To Do task projection sends an empty body the same way, which needs no change: probed 2026-11-24, To Do moves no etag or `lastModifiedDateTime` over 23 s after a create with an empty, absent or text body, and a create with no body reads back an empty text body.
