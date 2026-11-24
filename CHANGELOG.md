@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-25
+
 ### Fixed
 
 - Fixed `MsgraphContact::update_from_vcard` leaving the unchanged display name out of a patch changing a name part (`givenName`, `middleName`, `surname`, `title`, `generation`) or `companyName`: Graph then recomposed `displayName` from the name parts, overwriting the card's own. Such a patch now carries the display name.
@@ -344,7 +346,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added the contacts surface: contact folders and contacts, with delta.
 - Added `MsgraphClientStd` (`client` feature), a std blocking client with a `connect` constructor behind the TLS features.
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.11.0..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.11.1..HEAD
+[0.11.1]: https://github.com/pimalaya/io-msgraph/compare/v0.11.0..v0.11.1
 [0.11.0]: https://github.com/pimalaya/io-msgraph/compare/v0.10.0..v0.11.0
 [0.10.0]: https://github.com/pimalaya/io-msgraph/compare/v0.9.4..v0.10.0
 [0.9.4]: https://github.com/pimalaya/io-msgraph/compare/v0.9.3..v0.9.4
