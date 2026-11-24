@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `MsgraphContact::update_from_vcard` leaving the unchanged display name out of a patch changing a name part (`givenName`, `middleName`, `surname`, `title`, `generation`) or `companyName`: Graph then recomposed `displayName` from the name parts, overwriting the card's own. Such a patch now carries the display name.
+
 ## [0.11.0] - 2026-11-24
 
 ### Added

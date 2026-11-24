@@ -19,3 +19,11 @@ A TEL typed `fax` or `pager` SHALL be stashed rather than fill a phone slot, wha
 
 ### Requirement: The stashed UID is the whole value
 `stashed_uid` SHALL answer the whole raw value of the stashed UID line, the commas and semicolons it holds included.
+
+### Requirement: A renaming patch carries the display name
+`update_from_vcard` SHALL keep the card's display name in the patch, unchanged as it is, whenever the patch changes `givenName`, `middleName`, `surname`, `title`, `generation` or `companyName`: Graph recomposes `displayName` from the name parts on a PATCH changing one of them that names no `displayName`, overwriting the card's own. A patch changing none of them SHALL leave an unchanged display name out.
+
+#### Scenario: An organization changed on a contact named apart from its parts
+- GIVEN a base card `FN:Jane the Pilot`, `N:Doe;Jane;;;`, and the same card with `ORG:Acme` added
+- WHEN `update_from_vcard` projects the edit
+- THEN the patch sets `companyName` and `displayName: "Jane the Pilot"`

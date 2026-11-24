@@ -659,12 +659,18 @@ impl MsgraphContact {
     /// with an internal server error (HTTP 500), so a Null survives only when
     /// the edit cleared a field the base carried (collections clear through an
     /// explicit empty Set instead).
+    ///
+    /// The display name is the one unchanged field kept when a name part
+    /// (`givenName`, `middleName`, `surname`, `title`, `generation`) or
+    /// `companyName` changes: Graph recomposes `displayName` from the name
+    /// parts on such a PATCH naming none, overwriting the card's own.
     pub fn update_from_vcard(
         vcard: &str,
         base_vcard: &str,
     ) -> Result<Self, MsgraphContactVcardError> {
         let mut contact = Self::from_vcard(vcard)?;
         let base = Self::from_vcard(base_vcard)?;
+        let display_name = contact.display_name.clone();
 
         macro_rules! unset_unchanged {
         ($($field:ident),* $(,)?) => {$(
@@ -702,6 +708,17 @@ impl MsgraphContact {
             categories,
             single_value_extended_properties,
         );
+
+        let renames = !contact.given_name.is_unset()
+            || !contact.middle_name.is_unset()
+            || !contact.surname.is_unset()
+            || !contact.title.is_unset()
+            || !contact.generation.is_unset()
+            || !contact.company_name.is_unset();
+
+        if renames && contact.display_name.is_unset() {
+            contact.display_name = display_name;
+        }
 
         Ok(contact)
     }
@@ -1137,6 +1154,36 @@ mod tests {
         assert_eq!(contact.categories, MsgraphField::Unset);
     }
 
+    /// Graph recomposes `displayName` from the name parts when a PATCH
+    /// changes one of them or `companyName` without naming it (live,
+    /// 2026-11-24), so such a patch carries the card's display name.
+    #[test]
+    fn update_from_vcard_of_a_name_part_keeps_the_display_name() {
+        let base = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Jane the Pilot\r\n\
+            N:Doe;Jane;;;\r\nTITLE:T1\r\nEND:VCARD\r\n";
+
+        for edited in [
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Jane the Pilot\r\n\
+            N:Doe;Jane;;;\r\nTITLE:T1\r\nORG:Acme\r\nEND:VCARD\r\n",
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Jane the Pilot\r\n\
+            N:Roe;Jane;;;\r\nTITLE:T1\r\nEND:VCARD\r\n",
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Jane the Pilot\r\n\
+            N:Doe;Janet;;;\r\nTITLE:T1\r\nEND:VCARD\r\n",
+        ] {
+            let contact = MsgraphContact::update_from_vcard(edited, base).unwrap();
+            assert_eq!(
+                contact.display_name,
+                MsgraphField::Set("Jane the Pilot".to_string()),
+                "{edited}"
+            );
+        }
+
+        let edited = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Jane the Pilot\r\n\
+            N:Doe;Jane;;;\r\nTITLE:T2\r\nEND:VCARD\r\n";
+        let contact = MsgraphContact::update_from_vcard(edited, base).unwrap();
+        assert_eq!(contact.display_name, MsgraphField::Unset);
+    }
+
     #[test]
     fn update_from_vcard_clears_collections_with_empty_sets() {
         let base = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:X\r\n\
@@ -1422,7 +1469,7 @@ mod tests {
         let patch = MsgraphContact::update_from_vcard(&plain, &card).unwrap();
         assert_eq!(
             serde_json::to_value(&patch).unwrap(),
-            serde_json::json!({"generation": null})
+            serde_json::json!({"displayName": "X", "generation": null})
         );
     }
 
