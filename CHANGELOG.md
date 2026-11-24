@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-24
+
 ### Added
 
 - Added `MsgraphEvent::online_meeting_provider` and `MsgraphOnlineMeetingProviderType` (`teamsForBusiness`, `skypeForBusiness`, `skypeForConsumer`, `unknown`, a value this version does not know reading as `unknown`), and the read-only `MsgraphCalendar::allowed_online_meeting_providers` and `default_online_meeting_provider`. **Breaking** for a struct literal without `..Default::default()`.
@@ -338,7 +340,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Added the contacts surface: contact folders and contacts, with delta.
 - Added `MsgraphClientStd` (`client` feature), a std blocking client with a `connect` constructor behind the TLS features.
 
-[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.10.0..HEAD
+[unreleased]: https://github.com/pimalaya/io-msgraph/compare/v0.11.0..HEAD
+[0.11.0]: https://github.com/pimalaya/io-msgraph/compare/v0.10.0..v0.11.0
 [0.10.0]: https://github.com/pimalaya/io-msgraph/compare/v0.9.4..v0.10.0
 [0.9.4]: https://github.com/pimalaya/io-msgraph/compare/v0.9.3..v0.9.4
 [0.9.3]: https://github.com/pimalaya/io-msgraph/compare/v0.9.2..v0.9.3
