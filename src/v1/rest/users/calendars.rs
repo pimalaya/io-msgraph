@@ -3,11 +3,14 @@
 //!
 //! <https://learn.microsoft.com/en-us/graph/api/resources/calendar>
 
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 
 use serde::{Deserialize, Serialize};
 
-use crate::v1::{field::MsgraphField, rest::users::messages::MsgraphEmailAddress};
+use crate::v1::{
+    field::MsgraphField,
+    rest::users::{events::MsgraphOnlineMeetingProviderType, messages::MsgraphEmailAddress},
+};
 
 #[cfg(feature = "client")]
 pub mod create;
@@ -53,4 +56,73 @@ pub struct MsgraphCalendar {
     /// The owner of a shared calendar, or the user.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<MsgraphEmailAddress>,
+    /// The providers an event of the calendar can host its online meeting
+    /// with, empty when the tenant allows none, read-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_online_meeting_providers: Option<Vec<MsgraphOnlineMeetingProviderType>>,
+    /// The provider an event asking for an online meeting gets, `unknown`
+    /// when the tenant allows none, read-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_online_meeting_provider: Option<MsgraphOnlineMeetingProviderType>,
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::{vec, vec::Vec};
+
+    use crate::v1::rest::users::{
+        calendars::MsgraphCalendar, events::MsgraphOnlineMeetingProviderType,
+    };
+
+    /// A calendar of a tenant with Teams, as Graph answers it.
+    const TEAMS_CALENDAR: &str = r#"{
+        "id": "AAMkADczZWY5NjZhAAA=",
+        "name": "Calendar",
+        "isDefaultCalendar": true,
+        "canEdit": true,
+        "allowedOnlineMeetingProviders": ["teamsForBusiness"],
+        "defaultOnlineMeetingProvider": "teamsForBusiness"
+    }"#;
+
+    /// A calendar of the test tenant, which allows no provider.
+    const PLAIN_CALENDAR: &str = r#"{
+        "id": "AAMkADczZWY5NjZhAAA=",
+        "name": "Calendar",
+        "isDefaultCalendar": true,
+        "canEdit": true,
+        "allowedOnlineMeetingProviders": [],
+        "defaultOnlineMeetingProvider": "unknown"
+    }"#;
+
+    #[test]
+    fn a_calendar_reads_its_online_meeting_providers() {
+        let teams: MsgraphCalendar = serde_json::from_str(TEAMS_CALENDAR).unwrap();
+        let plain: MsgraphCalendar = serde_json::from_str(PLAIN_CALENDAR).unwrap();
+        assert_eq!(
+            teams.allowed_online_meeting_providers,
+            Some(vec![MsgraphOnlineMeetingProviderType::TeamsForBusiness])
+        );
+        assert_eq!(
+            plain.allowed_online_meeting_providers,
+            Some(Vec::new()),
+            "none allowed is not none read"
+        );
+        assert_eq!(
+            plain.default_online_meeting_provider,
+            Some(MsgraphOnlineMeetingProviderType::Unknown)
+        );
+
+        let teams = serde_json::to_value(&teams).unwrap();
+        let plain = serde_json::to_value(&plain).unwrap();
+        assert_eq!(
+            teams["allowedOnlineMeetingProviders"],
+            serde_json::json!(["teamsForBusiness"])
+        );
+        assert_eq!(teams["defaultOnlineMeetingProvider"], "teamsForBusiness");
+        assert_eq!(
+            plain["allowedOnlineMeetingProviders"],
+            serde_json::json!([])
+        );
+        assert_eq!(plain["defaultOnlineMeetingProvider"], "unknown");
+    }
 }

@@ -218,13 +218,25 @@ impl MsgraphEvent {
     }
 
     /// Projects an iCalendar document onto a create body: the full-state
-    /// projection minus its nulls and empty collections, which a fresh event
-    /// does not need.
+    /// projection minus its nulls, empty collections and empty body, which a
+    /// fresh event does not need.
+    ///
+    /// Exchange rewrites an event 0.5 to 4 seconds after a write that sets
+    /// its body, even an empty one, moving its `changeKey`: an event
+    /// without DESCRIPTION is created with no body, so it is not rewritten.
     pub fn create_from_ical(contents: &[u8]) -> Result<Self, MsgraphEventIcalError> {
         let mut event = Self::from_ical(contents)?;
 
         if stash_lines(&event.single_value_extended_properties).is_empty() {
             event.single_value_extended_properties = MsgraphField::Unset;
+        }
+
+        let empty_body = event
+            .body
+            .as_option()
+            .is_some_and(|body| body.content.as_deref().is_none_or(str::is_empty));
+        if empty_body {
+            event.body = MsgraphField::Unset;
         }
 
         let mut body = to_value(&event).map_err(MsgraphEventIcalError::Json)?;
@@ -3947,6 +3959,40 @@ mod tests {
         let body = serde_json::to_value(&patch).unwrap()["body"].clone();
         assert_eq!(body["contentType"], "text", "Graph refuses a null body");
         assert_eq!(body["content"], "");
+    }
+
+    #[test]
+    fn an_event_without_description_is_created_with_no_body() {
+        let ical = concat!(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:u1\r\n",
+            "DTSTART:20260814T090000Z\r\nDTEND:20260814T100000Z\r\nSUMMARY:Lunch\r\n",
+            "RRULE:FREQ=WEEKLY;COUNT=3\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+        );
+
+        let event = MsgraphEvent::create_from_ical(ical.as_bytes()).unwrap();
+        let series = MsgraphEventSeries::create_from_ical(ical.as_bytes()).unwrap();
+
+        let json = serde_json::to_value(&event).unwrap();
+        assert!(
+            json.get("body").is_none(),
+            "Exchange rewrites a body: {json}"
+        );
+        assert_eq!(series.master.body, MsgraphField::Unset);
+    }
+
+    #[test]
+    fn an_event_with_description_is_created_with_its_body() {
+        let ical = concat!(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:u1\r\n",
+            "DTSTART:20260814T090000Z\r\nDTEND:20260814T100000Z\r\n",
+            "DESCRIPTION:notes\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+        );
+
+        let event = MsgraphEvent::create_from_ical(ical.as_bytes()).unwrap();
+
+        let body = serde_json::to_value(&event).unwrap()["body"].clone();
+        assert_eq!(body["contentType"], "text");
+        assert_eq!(body["content"], "notes");
     }
 
     #[test]

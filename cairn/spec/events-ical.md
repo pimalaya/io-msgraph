@@ -53,3 +53,11 @@ Each instance change SHALL carry the occurrence's original start as Graph's `ori
 
 ### Requirement: What Graph cannot hold of a series is named
 The series projection SHALL drop nothing silently: it SHALL name, as its logical line, every RDATE and EXRULE of the master; every EXDATE value and RECURRENCE-ID whose instant does not read; every RECURRENCE-ID with a RANGE; every override and EXDATE beside a master that is no series; every occurrence `base` cancels and the document no longer does, Graph having no call restoring one; and every unmanaged line of an override other than its UID, an instance patch carrying no stash.
+
+### Requirement: An event without a description is created with no body
+A create body (`create_from_ical`, and the master of `MsgraphEventSeries::create_from_ical`) SHALL leave the body out when the document gives no text for it, no DESCRIPTION nor HTML one, or an empty one: Exchange rewrites an event 0.5 to 4 seconds after a write that sets its body, even an empty one, moving its `changeKey`, so a change queued right after the create would meet a revision its writer never made. An update SHALL still clear a removed description with an empty text body, Graph refusing a null one.
+
+#### Scenario: A series created with no DESCRIPTION
+- GIVEN a weekly series document with a SUMMARY and no DESCRIPTION
+- WHEN it is projected for a create
+- THEN the create body, and the series master's, carry no `body` member

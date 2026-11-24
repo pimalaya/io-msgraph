@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added `MsgraphEvent::online_meeting_provider` and `MsgraphOnlineMeetingProviderType` (`teamsForBusiness`, `skypeForBusiness`, `skypeForConsumer`, `unknown`, a value this version does not know reading as `unknown`), and the read-only `MsgraphCalendar::allowed_online_meeting_providers` and `default_online_meeting_provider`. **Breaking** for a struct literal without `..Default::default()`.
+
+### Fixed
+
+- Fixed `MsgraphEvent::create_from_ical` (and `MsgraphEventSeries::create_from_ical`) sending an empty text body for an event without DESCRIPTION: Exchange rewrote every such event seconds after its create, so a change queued right after met a server edit. The body is now left out; an update still clears a removed description with an empty text body.
+
 ## [0.10.0] - 2026-11-21
 
 ### Changed

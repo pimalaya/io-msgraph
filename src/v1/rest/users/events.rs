@@ -144,6 +144,12 @@ pub struct MsgraphEvent {
     /// details then come back in `onlineMeeting`.
     #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
     pub is_online_meeting: MsgraphField<bool>,
+    /// The service hosting the online meeting, `unknown` for none. Setting
+    /// it makes Graph create the meeting with that provider, one the
+    /// calendar allows (`allowedOnlineMeetingProviders`); neither it nor
+    /// `isOnlineMeeting` changes once the meeting exists.
+    #[serde(default, skip_serializing_if = "MsgraphField::is_unset")]
+    pub online_meeting_provider: MsgraphField<MsgraphOnlineMeetingProviderType>,
     /// The details to join an online meeting (Teams), read-only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub online_meeting: Option<MsgraphOnlineMeetingInfo>,
@@ -178,6 +184,22 @@ pub struct MsgraphOnlineMeetingInfo {
     /// The link to join the meeting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub join_url: Option<String>,
+}
+
+/// A service hosting online meetings, for an event and the providers a
+/// calendar allows.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum MsgraphOnlineMeetingProviderType {
+    /// Microsoft Teams.
+    TeamsForBusiness,
+    /// Skype for Business.
+    SkypeForBusiness,
+    /// Skype (consumer).
+    SkypeForConsumer,
+    /// No provider, or one this version does not know.
+    #[serde(other)]
+    Unknown,
 }
 
 /// An event location.
@@ -421,4 +443,75 @@ pub enum MsgraphWeekIndex {
     Fourth,
     /// The last.
     Last,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::v1::{
+        field::MsgraphField,
+        rest::users::events::{MsgraphEvent, MsgraphOnlineMeetingProviderType},
+    };
+
+    /// A Teams meeting as Graph answers it.
+    const TEAMS_EVENT: &str = r#"{
+        "@odata.etag": "W/\"vpggFQef0kKogJ7hQ62IOgAABrBCFA==\"",
+        "id": "AAMkADczZWY5NjZhAAA=",
+        "subject": "Review",
+        "isOnlineMeeting": true,
+        "onlineMeetingProvider": "teamsForBusiness",
+        "onlineMeeting": {"joinUrl": "https://teams.microsoft.com/l/meetup-join/19%3ameeting"}
+    }"#;
+
+    /// An event of the test tenant, which allows no provider.
+    const PLAIN_EVENT: &str = r#"{
+        "@odata.etag": "W/\"vpggFQef0kKogJ7hQ62IOgAABrBCFA==\"",
+        "id": "AAMkADczZWY5NjZhAAA=",
+        "subject": "Hackathon",
+        "isOnlineMeeting": false,
+        "onlineMeetingProvider": "unknown",
+        "onlineMeeting": null
+    }"#;
+
+    #[test]
+    fn an_event_reads_and_writes_back_its_online_meeting_provider() {
+        let teams: MsgraphEvent = serde_json::from_str(TEAMS_EVENT).unwrap();
+        let plain: MsgraphEvent = serde_json::from_str(PLAIN_EVENT).unwrap();
+        assert_eq!(
+            teams.online_meeting_provider,
+            MsgraphField::Set(MsgraphOnlineMeetingProviderType::TeamsForBusiness)
+        );
+        assert_eq!(
+            plain.online_meeting_provider,
+            MsgraphField::Set(MsgraphOnlineMeetingProviderType::Unknown)
+        );
+
+        let teams = serde_json::to_value(&teams).unwrap();
+        let plain = serde_json::to_value(&plain).unwrap();
+        assert_eq!(teams["onlineMeetingProvider"], "teamsForBusiness");
+        assert_eq!(plain["onlineMeetingProvider"], "unknown");
+    }
+
+    #[test]
+    fn a_provider_this_version_does_not_know_reads_as_unknown() {
+        let event = PLAIN_EVENT.replace("\"unknown\"", "\"zoomForBusiness\"");
+
+        let event: MsgraphEvent = serde_json::from_str(&event).unwrap();
+
+        assert_eq!(
+            event.online_meeting_provider,
+            MsgraphField::Set(MsgraphOnlineMeetingProviderType::Unknown)
+        );
+    }
+
+    #[test]
+    fn an_event_left_without_provider_sends_none() {
+        let patch = MsgraphEvent {
+            is_online_meeting: MsgraphField::Set(true),
+            ..Default::default()
+        };
+
+        let body = serde_json::to_string(&patch).unwrap();
+
+        assert_eq!(body, r#"{"isOnlineMeeting":true}"#);
+    }
 }
